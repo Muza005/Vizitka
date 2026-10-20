@@ -263,6 +263,7 @@ function applyLang(l, save){
   renderStrip(); renderPrices(); renderTerms();
   if(cur.p!=null && $("#pd").open) fillProject(cur.p, cur.i);
   if(save) store.set("lang", lang);
+  document.dispatchEvent(new CustomEvent("vz:lang"));
 }
 
 function movePill(code){

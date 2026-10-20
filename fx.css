@@ -74,23 +74,25 @@
   --sh:0,0,0; --sh-a:.55;
 }
 
-/* Auras: big soft radial-gradient spots behind the hero, no filter blur. They reach up under the
+/* Auras: big soft radial-gradient spots behind the hero, no filter blur. Placed in px from the top, not %,
+   so a font swap that changes the hero height doesn't move them (that would count as layout shift). They reach up under the
    translucent header and fade out toward the next section instead of ending on a hard edge. */
-.fx-base .hero{position:relative;isolation:isolate}
+/* no isolation here: the pinned card has to rise above the sticky header (stage 3) */
+.fx-base .hero{position:relative}
 .fx-aura{position:absolute;inset:-64px 0 0;z-index:-1;pointer-events:none;overflow:hidden;
   -webkit-mask-image:linear-gradient(#000 62%,transparent);mask-image:linear-gradient(#000 62%,transparent)}
 .fx-aura > div{position:absolute;inset:0}
 .fx-aura i{position:absolute;border-radius:50%;aspect-ratio:1;translate:-50% -50%}
-.fx-aura i:nth-child(1){left:76%;top:38%;width:max(460px,62vw);
+.fx-aura i:nth-child(1){left:76%;top:330px;width:max(460px,62vw);
   background:radial-gradient(closest-side,var(--au-1),color-mix(in srgb,var(--au-1) 55%,transparent) 40%,color-mix(in srgb,var(--au-1) 18%,transparent) 70%,transparent)}
-.fx-aura i:nth-child(2){left:90%;top:78%;width:max(320px,40vw);
+.fx-aura i:nth-child(2){left:90%;top:610px;width:max(320px,40vw);
   background:radial-gradient(closest-side,var(--au-2),color-mix(in srgb,var(--au-2) 50%,transparent) 42%,color-mix(in srgb,var(--au-2) 15%,transparent) 72%,transparent)}
-.fx-aura i:nth-child(3){left:12%;top:92%;width:max(380px,48vw);
+.fx-aura i:nth-child(3){left:12%;top:690px;width:max(380px,48vw);
   background:radial-gradient(closest-side,var(--au-3),color-mix(in srgb,var(--au-3) 50%,transparent) 42%,color-mix(in srgb,var(--au-3) 15%,transparent) 72%,transparent)}
 @media (max-width:900px){
-  .fx-aura i:nth-child(1){left:70%;top:66%}
-  .fx-aura i:nth-child(2){left:96%;top:86%}
-  .fx-aura i:nth-child(3){left:6%;top:24%}
+  .fx-aura i:nth-child(1){left:70%;top:740px}
+  .fx-aura i:nth-child(2){left:96%;top:900px}
+  .fx-aura i:nth-child(3){left:6%;top:260px}
 }
 
 /* Card depth. overflow:hidden on .face (needed to clip the rounded corners) flattens preserve-3d, and
@@ -102,7 +104,10 @@
 
 /* Ground shadow under the card: a wide soft pool plus a tight contact shadow, both radial gradients */
 .fx-base .scene{position:relative}
-.fx-shadow{position:absolute;inset:0;pointer-events:none}
+.fx-shadow{position:absolute;inset:0;pointer-events:none;visibility:hidden}
+.fx-shadow.on{visibility:visible}
+.fx-shadow i{opacity:0;transition:opacity .8s var(--ease)}
+.fx-shadow.on i{opacity:1}
 .fx-shadow i{position:absolute;border-radius:50%}
 .fx-shadow .soft{left:-2%;right:-2%;top:34%;bottom:-20%;
   background:radial-gradient(closest-side,rgba(var(--sh),var(--sh-a)),rgba(var(--sh),calc(var(--sh-a) * .45)) 50%,transparent)}
@@ -127,3 +132,41 @@
 @keyframes fxBob{0%,100%{translate:0 0}50%{translate:0 -6px}}
 @keyframes fxSway{0%,100%{rotate:0deg}30%{rotate:-.45deg}70%{rotate:.45deg}}
 @keyframes fxShadow{0%,100%{scale:1;opacity:1}50%{scale:.95;opacity:.82}}
+
+/* ---------- Stage 3: scroll (html.fx-rv / html.fx-pin are set by fx.js, never under reduced motion) ---------- */
+/* Reveal. Animations (not transitions) with backwards fill, so hover transitions and the magnets'
+   inline translate keep working once a piece has arrived. */
+.fx-rv .fx-wait :is(.sec-head p,#strip > *,.price-group > *,.terms > *,#steps > li,.contact .lead,.contact .tg,.clist > li){opacity:0;translate:0 18px}
+.fx-rv .fx-in :is(.sec-head p,#strip > *,.price-group > *,.terms > *,#steps > li,.contact .lead,.contact .tg,.clist > li){
+  animation:fxRise .8s var(--ease) backwards;animation-delay:var(--d,0ms)}
+@keyframes fxRise{from{opacity:0;translate:0 18px}to{opacity:1;translate:0 0}}
+
+/* Headings rise word by word from behind a mask; the padding keeps descenders and diacritics unclipped */
+.fx-w{display:inline-block;overflow:hidden;vertical-align:top;padding:.12em 0 .14em;margin:-.12em 0 -.14em}
+.fx-w > span{display:inline-block}
+.fx-rv .fx-wait .fx-w > span{translate:0 112%}
+.fx-rv .fx-in .fx-w > span{animation:fxWord .9s cubic-bezier(.2,.75,.15,1) backwards;animation-delay:calc(var(--w,0) * 55ms)}
+@keyframes fxWord{from{translate:0 112%}to{translate:0 0}}
+
+/* Price count-up: the final text is there for screen readers, the moving copy keeps its width */
+.fx-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.fx-num{display:inline-block;font-variant-numeric:tabular-nums}
+
+/* Steps: an accent line draws over the grey one as the steps scroll through the viewport */
+.fx-rv .steps{position:relative}
+.fx-rv .steps li::before{z-index:2}
+.fx-rv .steps::before{content:"";position:absolute;z-index:1;left:0;right:0;top:0;height:2px;border-radius:2px;background:var(--lapis);
+  transform-origin:0 50%;transform:scaleX(var(--fx-p,0));pointer-events:none}
+@media (max-width:900px){
+  .fx-rv .steps::before{left:13px;right:auto;width:2px;bottom:0;height:auto;transform-origin:50% 0;transform:scaleY(var(--fx-p,0))}
+}
+@supports (animation-timeline: view()){
+  .fx-rv .steps{view-timeline:--fx-steps block}
+  .fx-rv .steps::before{animation:fxLineX linear both;animation-timeline:--fx-steps;animation-range:entry 70% cover 55%}
+  @media (max-width:900px){ .fx-rv .steps::before{animation-name:fxLineY;animation-range:entry 30% cover 70%} }
+}
+@keyframes fxLineX{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes fxLineY{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+
+/* Pinned card: scaled from its top-left corner and lifted above the sticky header (z-index 20) */
+.fx-pin .scene{z-index:25;transform-origin:0 0}

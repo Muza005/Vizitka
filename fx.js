@@ -11,6 +11,13 @@
   // Emulated height above the card surface, px: positive layers float above, negative sink below
   const DEPTH=[[".fx-gl",-16],[".bc-city",14],[".bc-name",34],[".bc-role",22],[".bc-lines",18],[".back svg",22],[".back > div",14]];
   const SHADOW_H=110;                     // how far below the card the "table" is, px
+  // Scroll reveal: observed blocks, and the pieces inside them that rise in turn
+  const RV_BLOCKS=".sec-head,#strip,.price-group,.terms,.steps-title,#steps,.contact > div:first-child,.clist";
+  const RV_ITEMS=".sec-head p,#strip > *,.price-group > *,.terms > *,#steps > li,.contact .lead,.contact .tg,.clist > li";
+  const RV_HEADS=".sec-head h2,.steps-title,.contact h2";
+  const RV_STEP=70, RV_WORD=55, RV_AFTER_WORDS=140, RV_MAX_I=8, RV_DUR=900; // ms
+  const COUNT_DUR=1100;                   // price count-up, ms
+  const PIN_FADE=.82, PIN_SAMPLES=24;     // card fades into the logo after this share of the flight
 
   const root=document.documentElement;
   const heroEl=document.querySelector(".hero"), sceneEl=document.querySelector(".scene");
@@ -28,6 +35,10 @@
   shadow.className="fx-shadow"; shadow.setAttribute("aria-hidden","true");
   shadow.innerHTML='<i class="soft"></i><i class="contact"></i>';
   if(sceneEl) sceneEl.prepend(shadow);
+  // it fades in once web fonts are in: the font swap moves the hero card, and a visible 2D layer there
+  // would be counted as layout shift (the card itself, in its 3D context, isn't)
+  const showShadow=()=>shadow.classList.add("on");
+  if(document.fonts && document.fonts.ready) document.fonts.ready.then(()=>requestAnimationFrame(showShadow)); else showShadow();
 
   // Guilloche moves to its own layer so it can sit deeper than the text
   const front=document.querySelector(".front");
@@ -36,6 +47,140 @@
   // Nothing animates while the hero is off screen
   if(heroEl && "IntersectionObserver" in window)
     new IntersectionObserver(([e])=>heroEl.classList.toggle("fx-idle",!e.isIntersecting)).observe(heroEl);
+
+  /* ---------- scroll reveal ---------- */
+  // Content is hidden only once html.fx-rv is set here, so without JS (or with reduced motion) it's all just visible.
+  // A block waits (.fx-wait) until it scrolls in, plays once (.fx-in), then settles (no class), so pieces that
+  // applyLang re-renders later show up as they are instead of replaying.
+  const io="IntersectionObserver" in window && !REDUCED;
+  if(io){
+    root.classList.add("fx-rv");
+    const splitWords=h=>{
+      if(h.querySelector(".fx-w")) return;
+      h.innerHTML=h.textContent.trim().split(/[ \t\n]+/).map((w,i)=>`<span class="fx-w"><span style="--w:${i}">${esc(w)}</span></span>`).join(" ");
+    };
+    const seenBlocks=new WeakSet();
+    const reveal=b=>{
+      b.classList.remove("fx-wait"); b.classList.add("fx-in");
+      const words=b.querySelectorAll(".fx-w").length, base=words?RV_AFTER_WORDS+words*RV_WORD/2:0;
+      const items=[...b.querySelectorAll(RV_ITEMS)];
+      items.forEach((el,i)=>el.style.setProperty("--d",`${base+Math.min(i,RV_MAX_I)*RV_STEP}ms`));
+      b.querySelectorAll(".pprice").forEach((el,i)=>countUp(el,base+(i+1)*RV_STEP+120));
+      setTimeout(()=>{ b.classList.remove("fx-in"); items.forEach(el=>el.style.removeProperty("--d")); },
+        base+Math.max(words*RV_WORD,Math.min(items.length,RV_MAX_I)*RV_STEP)+RV_DUR);
+    };
+    const obs=new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting){ obs.unobserve(e.target); reveal(e.target); } }),{rootMargin:"0px 0px -12% 0px"});
+    // first: blocks above the bottom of the viewport stay put; later (re-render): anything already reached stays put
+    const scan=first=>{
+      document.querySelectorAll(RV_HEADS).forEach(splitWords);
+      document.querySelectorAll(RV_BLOCKS).forEach(b=>{
+        if(seenBlocks.has(b)) return; seenBlocks.add(b);
+        const r=b.getBoundingClientRect();
+        if(first ? r.bottom<0 : r.top<innerHeight) return;
+        b.classList.add("fx-wait"); obs.observe(b);
+      });
+    };
+    scan(true);
+    document.addEventListener("vz:lang",()=>scan(false));
+  }
+
+  // Count a price up from 0 in the same format fmtPrice produced. Screen readers get the final text right away,
+  // the moving copy is aria-hidden and keeps the final width so nothing around it shifts.
+  function countUp(el,delay){
+    const final=el.textContent, m=final.match(/\d+(?:[.,]\d+)?/); if(!m) return;
+    const dec=(m[0].split(/[.,]/)[1]||"").length, sep=m[0].includes(",")?",":".", to=parseFloat(m[0].replace(",","."));
+    const group=s=>s.replace(/^\d+/,d=>d.replace(/\B(?=(\d{3})+(?!\d))/g," "));
+    const fmt=v=>final.slice(0,m.index)+group(v.toFixed(dec).replace(".",sep))+final.slice(m.index+m[0].length);
+    const w=el.getBoundingClientRect().width;
+    el.innerHTML=`<span class="fx-sr"></span><span class="fx-num" aria-hidden="true" style="min-width:${w.toFixed(1)}px"></span>`;
+    el.firstChild.textContent=final;
+    const vis=el.lastChild; vis.textContent=fmt(0);
+    let t0=0;
+    const tick=now=>{
+      if(!el.isConnected) return;
+      if(!t0) t0=now;
+      const t=Math.min(1,(now-t0)/COUNT_DUR);
+      if(t<1){ vis.textContent=fmt(to*(1-Math.pow(1-t,3))); requestAnimationFrame(tick); }
+      else el.textContent=final;
+    };
+    setTimeout(()=>requestAnimationFrame(tick),delay);
+  }
+
+  // Steps line: CSS scroll-driven animation where supported, otherwise --fx-p from scroll
+  const steps=document.getElementById("steps");
+  if(io && steps && !(window.CSS && CSS.supports("animation-timeline: view()"))){
+    let raf=0;
+    const upd=()=>{ raf=0; const r=steps.getBoundingClientRect(), vh=innerHeight;
+      steps.style.setProperty("--fx-p",Math.max(0,Math.min(1,(vh*.88-r.top)/(vh*.5))).toFixed(3)); };
+    addEventListener("scroll",()=>{ if(!raf) raf=requestAnimationFrame(upd); },{passive:true});
+    upd();
+  }
+
+  /* ---------- pinned card: flies from the hero into the header logo as you scroll ---------- */
+  // The card stays in the layout (no shift); only .scene gets transform/opacity. Its keyframes are sampled
+  // over scroll offsets and bound to a ScrollTimeline, so the browser runs it with the scroll; where that API
+  // is missing the same pose() is applied from a rAF on scroll.
+  const mark=document.querySelector(".brand-mark"), topBar=document.querySelector(".top");
+  if(!REDUCED && sceneEl && mark && topBar){
+    root.classList.add("fx-pin");
+    const g={};
+    const docPos=el=>{ let x=0,y=0; for(let e=el;e;e=e.offsetParent){ x+=e.offsetLeft; y+=e.offsetTop; } return [x,y]; };
+    const ease=p=>p<.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2;
+    const lerp=(a,b,t)=>a+(b-a)*t;
+    function geo(){
+      [g.L,g.T]=docPos(sceneEl); g.W=sceneEl.offsetWidth; g.H=sceneEl.offsetHeight;
+      g.bx=mark.offsetLeft; g.by=(parseFloat(getComputedStyle(topBar).top)||0)+mark.offsetTop;
+      g.bw=mark.offsetWidth; g.bh=mark.offsetHeight;
+      const vh=innerHeight;
+      g.s0=Math.max(0,g.T+g.H/2-vh*.55);
+      g.s1=Math.max(g.s0+220,g.T+g.H-topBar.offsetHeight/2);
+      g.max=Math.max(g.s1+1,document.documentElement.scrollHeight-vh);
+    }
+    const progress=s=>Math.max(0,Math.min(1,(s-g.s0)/(g.s1-g.s0)));
+    function pose(s){
+      const p=progress(s), e=ease(p);
+      // viewport top goes from where the card was when the flight started to the logo; + s undoes the scroll
+      const tx=(g.bx-g.L)*e, ty=s<=g.s0?0:lerp(g.T-g.s0,g.by,e)-g.T+s;
+      return {p,
+        transform:`translate3d(${tx.toFixed(2)}px,${ty.toFixed(2)}px,0) scale(${lerp(1,g.bw/g.W,e).toFixed(4)},${lerp(1,g.bh/g.H,e).toFixed(4)})`,
+        opacity:p<PIN_FADE?1:Math.max(0,1-(p-PIN_FADE)/(1-PIN_FADE)),
+        mark:s<=g.s0?1:p<.12?1-p/.12:p>PIN_FADE?(p-PIN_FADE)/(1-PIN_FADE):0};
+    }
+    let anims=[];
+    function build(){
+      anims.forEach(a=>a.cancel()); anims=[];
+      geo();
+      if(!("ScrollTimeline" in window)){ applyPose(); return; }
+      const card=[], logo=[], at=s=>Math.min(1,s/g.max);
+      const push=s=>{ const q=pose(s); card.push({offset:at(s),transform:q.transform,opacity:q.opacity,visibility:q.p>=1?"hidden":"visible"}); logo.push({offset:at(s),opacity:q.mark}); };
+      push(0);
+      for(let i=0;i<=PIN_SAMPLES;i++) push(g.s0+(g.s1-g.s0)*i/PIN_SAMPLES);
+      push(g.max);
+      const tl=new ScrollTimeline({source:document.documentElement,axis:"block"});
+      anims=[sceneEl.animate(card,{timeline:tl,fill:"both"}),mark.animate(logo,{timeline:tl,fill:"both"})];
+    }
+    function applyPose(){
+      const q=pose(scrollY);
+      sceneEl.style.transform=q.transform; sceneEl.style.opacity=q.opacity; sceneEl.style.visibility=q.p>=1?"hidden":"";
+      mark.style.opacity=q.mark;
+    }
+    if(!("ScrollTimeline" in window)){ let raf=0; addEventListener("scroll",()=>{ if(!raf) raf=requestAnimationFrame(()=>{ raf=0; applyPose(); }); },{passive:true}); }
+    let bt=0; const rebuild=()=>{ clearTimeout(bt); bt=setTimeout(build,120); };
+    build();
+    addEventListener("resize",rebuild,{passive:true});
+    if("ResizeObserver" in window) new ResizeObserver(rebuild).observe(document.body);
+    document.addEventListener("vz:lang",rebuild);
+    if(document.fonts && document.fonts.ready) document.fonts.ready.then(rebuild);
+    // Once the card is mostly in the header, a click on it goes back to the top instead of flipping;
+    // the logo it turns into does the same (all the way up, so the card lands back in the hero)
+    sceneEl.addEventListener("click",e=>{
+      if(progress(scrollY)<.5) return;
+      e.stopPropagation(); e.preventDefault();
+      scrollTo({top:0,behavior:"smooth"});
+    },true);
+    const brand=mark.closest("a");
+    if(brand) brand.addEventListener("click",e=>{ e.preventDefault(); scrollTo({top:0,behavior:"smooth"}); });
+  }
 
   if(!fine) return;
 
@@ -79,7 +224,9 @@
     });
     spots=new Map([...document.querySelectorAll(SPOT_SEL)].map(el=>[el,box(el)]));
     const h=document.querySelector(".hero"), sc=document.querySelector(".scene");
-    hero=h&&box(h); scene=sc&&box(sc);
+    hero=h&&box(h);
+    // the scene may be mid-flight to the header, so take its untransformed box from offsets
+    if(sc){ let l=0,t=0; for(let e=sc;e;e=e.offsetParent){ l+=e.offsetLeft; t+=e.offsetTop; } scene={l,t,w:sc.offsetWidth,h:sc.offsetHeight,f:false,ok:true}; }
   }
   const markDirty=()=>{ dirty=true; };
   addEventListener("resize",()=>{ markDirty(); vw=innerWidth; vh=innerHeight; },{passive:true});
