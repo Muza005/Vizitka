@@ -18,6 +18,7 @@
   const RV_STEP=70, RV_WORD=55, RV_AFTER_WORDS=140, RV_MAX_I=8, RV_DUR=900; // ms
   const COUNT_DUR=1100;                   // price count-up, ms
   const PIN_FADE=.82, PIN_SAMPLES=24;     // card fades into the logo after this share of the flight
+  const MORPH_WAIT=300;                   // how long the card → dialog morph waits for the first frame to decode, ms
 
   const root=document.documentElement;
   const heroEl=document.querySelector(".hero"), sceneEl=document.querySelector(".scene");
@@ -182,6 +183,57 @@
     if(brand) brand.addEventListener("click",e=>{ e.preventDefault(); scrollTo({top:0,behavior:"smooth"}); });
   }
 
+  /* ---------- project card ⇄ dialog: the cover morphs into the first gallery frame and back ---------- */
+  // script.js calls fxMorph.open/close first; false means "not here", and it plays pdIn/pdOut as before.
+  // view-transition-name is set only for the length of a transition.
+  const pd=document.getElementById("pd");
+  if(!REDUCED && pd && document.startViewTransition){
+    let vt=null, kind="";
+    const named=(el,n)=>{ if(el) el.style.viewTransitionName=n||""; };
+    const inView=el=>{ const r=el.getBoundingClientRect(); return r.width>0 && r.bottom>0 && r.top<innerHeight && r.right>0 && r.left<innerWidth; };
+    const coverOf=pi=>document.querySelector(`#strip a.pcard[data-p="${pi}"] .pcover`);
+    const ready=img=>Promise.race([img.decode().catch(()=>{}),new Promise(r=>setTimeout(r,MORPH_WAIT))]);
+    const run=(k,update,cleanup)=>{
+      kind=k; root.classList.add("fx-vt");
+      vt=document.startViewTransition(update);
+      vt.finished.finally(()=>{ cleanup(); root.classList.remove("fx-vt"); vt=null; kind=""; });
+    };
+    window.fxMorph={
+      open(pi,opener){
+        const cover=opener&&opener.querySelector(".pcover");
+        if(pd.open || vt || !cover || !inView(cover)) return false;
+        // the first frame has to be decoded before the snapshot, or the morph would land on an empty box
+        const im=new Image(); im.src=IMG[PROJECTS[pi].shots[0][0]];
+        ready(im).then(()=>{
+          if(pd.open) return;
+          if(!im.complete || !im.naturalWidth){ openProject(pi,opener,true); return; }
+          let shot=null;
+          named(cover,"fx-shot");
+          run("open",async()=>{
+            named(cover);
+            pd.classList.add("fx-morphed");
+            openProject(pi,opener,true);
+            const tr=document.getElementById("pdTrack"); tr.scrollLeft=0;
+            shot=tr.querySelector("img"); named(shot,"fx-shot"); named(pd,"fx-pd");
+            await ready(shot);
+          },()=>{ named(shot); named(pd); });
+        });
+        return true;
+      },
+      close(){
+        if(vt){ if(kind==="close") return true; vt.skipTransition(); return false; }
+        const cover=coverOf(cur.p), shot=pd.querySelectorAll("#pdTrack img")[cur.i];
+        if(!cover || !shot || !inView(cover) || !inView(shot)) return false;
+        // the strip may have been re-rendered (language switch) while the dialog was open
+        cur.opener=cover.closest("a");
+        named(shot,"fx-shot"); named(pd,"fx-pd");
+        run("close",()=>{ named(shot); named(pd); finishClose(); named(cover,"fx-shot"); },()=>named(cover));
+        return true;
+      }
+    };
+    pd.addEventListener("close",()=>pd.classList.remove("fx-morphed"));
+  }
+
   if(!fine) return;
 
   const HALO_LERP=.18;                    // halo follow per frame
@@ -192,6 +244,9 @@
   const GOLD_LERP=.08, GOLD_REST=40;      // --sx easing and resting value
   const LINK_SEL="a,button,[role=button],label,input,select,textarea,summary";
   const OPEN={ru:"Открыть",uz:"Ochish",en:"Open"};
+  const PV_TILT=7, PV_PERSP=900, PV_LERP=.12; // project cover tilt: max angle (deg), perspective (px), follow per frame
+  const PV_DELAY=350, PV_SLIDE=1900, PV_FADE=600; // hover preview: start delay, time per shot, crossfade (ms)
+  const PV_ZOOM=1.07;                     // Ken Burns zoom for regular shots; tall ones scroll down instead
 
   root.classList.add("fx");
 
@@ -254,8 +309,9 @@
   }
   document.addEventListener("pointerover",e=>{
     if(e.pointerType!=="mouse") return;
-    const t=e.target;
-    setMode(t.closest("a.pcard")?"card":t.closest("#bcard")?"gold":t.closest(LINK_SEL)?"link":"");
+    const t=e.target, pc=t.closest("a.pcard");
+    if(pc!==hov) hoverCard(pc);
+    setMode(pc?"card":t.closest("#bcard")?"gold":t.closest(LINK_SEL)?"link":"");
     const s=t.closest(SPOT_SEL);
     if(s!==lit){ if(lit) lit.classList.remove("fx-lit"); lit=s; if(s){ s.classList.add("fx-lit"); moved=true; wake(); } }
   },{passive:true});
@@ -263,6 +319,7 @@
     if(e.relatedTarget) return;
     halo.classList.remove("on"); setMode("");
     if(lit){ lit.classList.remove("fx-lit"); lit=null; }
+    hoverCard(null);
     px=py=-999; moved=true; wake();
   },{passive:true});
   addEventListener("blur",()=>halo.classList.remove("on"));
@@ -272,8 +329,90 @@
   document.addEventListener("pointercancel",up,{passive:true});
 
   // The halo can't sit above a modal dialog's top layer, so it steps aside while one is open.
-  const pd=document.getElementById("pd");
-  if(pd) new MutationObserver(()=>{ halo.classList.toggle("off",pd.open); markDirty(); }).observe(pd,{attributes:true,attributeFilter:["open"]});
+  if(pd) new MutationObserver(()=>{ halo.classList.toggle("off",pd.open); if(pd.open) hoverCard(null); markDirty(); }).observe(pd,{attributes:true,attributeFilter:["open"]});
+
+  /* Project covers: tilt toward the pointer with a glare, and after PV_DELAY of hovering page through
+     the project's shots (or play its preview video, if one is set). Layers are added on the first hover,
+     so nothing extra loads until then; applyLang re-renders the strip, and the next hover adds them again. */
+  let hov=null, pvTimer=0;
+  const tilts=new Map();                  // cover → tilt state, kept until it settles back flat
+  function layersOf(card){
+    const cover=card.querySelector(".pcover");
+    if(!cover) return null;
+    if(!cover.querySelector(".fx-pv")){
+      const p=PROJECTS[+card.dataset.p]; if(!p) return null;
+      const pv=document.createElement("div"); pv.className="fx-pv"; pv.setAttribute("aria-hidden","true");
+      if(p.preview && /\.(mp4|webm)(\?|$)/i.test(p.preview)){
+        const v=document.createElement("video");
+        v.muted=true; v.loop=true; v.playsInline=true; v.preload="none"; v.src=p.preview;
+        pv.append(v);
+      } else {
+        for(const s of p.shots){
+          if(s[0]===p.cover) continue;
+          const im=document.createElement("img");
+          im.alt=""; im.decoding="async"; im.src=IMG[s[0]];
+          pv.append(im);
+        }
+      }
+      const gl=document.createElement("div"); gl.className="fx-glare"; gl.setAttribute("aria-hidden","true"); gl.innerHTML="<i></i>";
+      cover.append(pv,gl);
+    }
+    return cover;
+  }
+  function hoverCard(card){
+    if(hov) stopPreview(hov);
+    hov=card||null;
+    if(!hov) return;
+    const cover=layersOf(hov); if(!cover) { hov=null; return; }
+    if(!tilts.has(cover)) tilts.set(cover,{x:0,y:0,glare:cover.querySelector(".fx-glare i")});
+    const s=tilts.get(cover);
+    s.ox=cover.offsetLeft; s.oy=cover.offsetTop; s.w=cover.offsetWidth; s.h=cover.offsetHeight;
+    cover.classList.add("fx-tl");
+    clearTimeout(pvTimer); pvTimer=setTimeout(()=>startPreview(hov),PV_DELAY);
+    wake();
+  }
+  function startPreview(card){
+    const pv=card&&card.querySelector(".fx-pv"); if(!pv || card!==hov) return;
+    const v=pv.querySelector("video");
+    if(v){ v.play().then(()=>{ if(card===hov) v.classList.add("on"); }).catch(()=>{}); return; }
+    const slides=[...pv.children], cw=pv.offsetWidth, ch=pv.offsetHeight;
+    let i=-1, z=0, prev=null;
+    const next=()=>{
+      // skip shots that haven't loaded yet; if none has, try again on the next tick
+      for(let k=0;k<slides.length;k++){
+        const im=slides[(i+1+k)%slides.length];
+        if(!im.complete || !im.naturalWidth) continue;
+        i=slides.indexOf(im);
+        const tall=im.naturalHeight/im.naturalWidth>ch/cw*1.15;
+        im.classList.toggle("tall",tall);
+        if(im.kb) im.kb.cancel();
+        im.kb=im.animate(tall
+          ? [{transform:"translateY(0)"},{transform:`translateY(${(-(1-ch/(cw*im.naturalHeight/im.naturalWidth))*100).toFixed(2)}%)`}]
+          : [{transform:"scale(1)"},{transform:`scale(${PV_ZOOM})`}],
+          {duration:PV_SLIDE+PV_FADE, easing:tall?"ease-in-out":"linear", fill:"both"});
+        im.style.zIndex=++z; im.classList.add("on");
+        if(prev && prev!==im){ const p=prev; setTimeout(()=>{ if(p!==slides[i]) p.classList.remove("on"); },PV_FADE); }
+        prev=im;
+        break;
+      }
+      pvTimer=setTimeout(next,i<0?150:PV_SLIDE);
+    };
+    next();
+  }
+  function stopPreview(card){
+    clearTimeout(pvTimer);
+    const pv=card.querySelector(".fx-pv"), cover=card.querySelector(".pcover");
+    if(cover) cover.classList.remove("fx-tl");
+    if(!pv) return;
+    const on=[...pv.querySelectorAll(".on")];
+    on.forEach(el=>el.classList.remove("on"));
+    // after the fade back to the cover, rewind
+    setTimeout(()=>on.forEach(el=>{
+      if(el.classList.contains("on")) return;
+      if(el.kb){ el.kb.cancel(); el.kb=null; }
+      if(el.tagName==="VIDEO"){ el.pause(); el.currentTime=0; }
+    }),PV_FADE);
+  }
 
   const docX=b=>px+(b.f?0:sX), docY=b=>py+(b.f?0:sY);
   const clamp=(v,a,b)=>v<a?a:v>b?b:v;
@@ -317,6 +456,20 @@
         lit.style.setProperty("--mx",(docX(b)-b.l-(s?s.x:0)).toFixed(0)+"px");
         lit.style.setProperty("--my",(docY(b)-b.t-(s?s.y:0)).toFixed(0)+"px");
       }
+    }
+
+    // project covers lean toward the pointer, measured against the card's cached box
+    for(const [cover,s] of tilts){
+      let tx=0, ty=0;
+      const card=cover.parentNode, b=card===hov&&px>-999&&spots.get(card);
+      if(b){ tx=clamp((docX(b)-b.l-s.ox)/s.w*2-1,-1,1); ty=clamp((docY(b)-b.t-s.oy)/s.h*2-1,-1,1); }
+      s.x+=(tx-s.x)*PV_LERP; s.y+=(ty-s.y)*PV_LERP;
+      if(Math.abs(tx-s.x)+Math.abs(ty-s.y)<.003){
+        s.x=tx; s.y=ty;
+        if(!b){ cover.style.transform=""; s.glare.style.transform=""; tilts.delete(cover); continue; }
+      } else busy=true;
+      cover.style.transform=`perspective(${PV_PERSP}px) rotateX(${(-s.y*PV_TILT).toFixed(2)}deg) rotateY(${(s.x*PV_TILT).toFixed(2)}deg)`;
+      s.glare.style.transform=`translate(${(s.x*25).toFixed(2)}%,${(s.y*25).toFixed(2)}%)`;
     }
 
     // gold: anywhere over the hero; same mapping as script.js inside the card so there's no jump

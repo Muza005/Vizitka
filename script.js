@@ -372,7 +372,8 @@ $("#pdTrack").addEventListener("scroll",()=>{
 $("#pdPrev").addEventListener("click",()=>goTo(cur.i-1));
 $("#pdNext").addEventListener("click",()=>goTo(cur.i+1));
 $("#pdTrack").addEventListener("keydown",e=>{ if(e.key==="ArrowRight"){e.preventDefault();goTo(cur.i+1)} if(e.key==="ArrowLeft"){e.preventDefault();goTo(cur.i-1)} });
-function openProject(pi, opener){
+function openProject(pi, opener, direct){
+  if(!direct && window.fxMorph && fxMorph.open(pi, opener)) return;
   cur.p=pi; cur.i=0; cur.opener=opener||null;
   const d=$("#pd");
   clearTimeout(closeTimer); d.classList.remove("closing");
@@ -387,6 +388,7 @@ function finishClose(){ const d=$("#pd"); clearTimeout(closeTimer); d.classList.
 function closeProject(){
   const d=$("#pd"); if(!d.open || d.classList.contains("closing")) return;
   if(REDUCED){ finishClose(); return; }
+  if(window.fxMorph && fxMorph.close()) return;
   d.classList.add("closing");
   closeTimer=setTimeout(finishClose,380);
 }
