@@ -11,13 +11,37 @@ const THICK=.6/85;                   // card stock: 0.6 mm on an 85 mm card
 const BEVEL=.35, RADIUS=16;          // px; RADIUS matches .face border-radius
 const TEX_PER_PX=1.5, TEX_MAX=2048;  // texture px per CSS px at DPR 1 (scaled by DPR up to 2), capped in width
 const EXPOSURE=1, ENV_LIGHT=.45;     // tone mapping exposure, RoomEnvironment strength
-const BASE_ROUGH=.5, FOIL_ROUGH=.22; // front: card stock under lacquer, gold foil
-const CLEARCOAT=.55, CLEARCOAT_ROUGH=.34;
+const BASE_ROUGH=.5, FOIL_ROUGH=.36, FOIL_METAL=.8, ROSETTE_METAL=.2; // FOIL_METAL < 1 keeps some printed gold when the foil faces away from the light // front: card stock under lacquer, gold foil
+const CLEARCOAT=.2, CLEARCOAT_ROUGH=.34, SPECULAR=.1; // SPECULAR: dielectric reflection of the stock (metal is unaffected)
 const BACK_ROUGH=.62, BACK_LIGHT=1.8, EDGE_COLOR=0xEEF1FA; // BACK_LIGHT: white paper needs more light than the lacquered front
-const GLINT=.15, GLINT_HOVER=1.3, GLINT_Z=360, GLINT_LERP=.12; // cursor light on the foil: intensity at rest / hovered, height above the card (px)
+const GLINT=.15, GLINT_HOVER=.7, GLINT_Z=360, GLINT_LERP=.12; // cursor light on the foil: intensity at rest / hovered, height above the card (px)
+const K_FRONT=1.7, K_BACK=2.8;            // light at rest, for the inverse tone curve below (calibrated against the CSS card)
 const SWAP_SCALE=.97;                // pinned card (stage 3): below this scale the DOM mini card takes over
 
 const S=new THREE.Matrix4().makeScale(1,-1,1); // CSS y points down
+
+/* ACES (three's fit) washes out saturated blues and greys the whites, and no exposure fits both. So the printed
+   colours go through its exact inverse first, divided by the light the card gets at rest (K, calibrated against the
+   CSS card): at rest they land on the CSS colours, while tilting, lacquer and the glint still light them physically.
+   Metal (the foil) is left as is. */
+const ACES_IN=new THREE.Matrix3().fromArray([.59719,.07600,.02840,.35458,.90834,.13383,.04823,.01566,.83777]);
+const ACES_OUT=new THREE.Matrix3().fromArray([1.60475,-.10208,-.00327,-.53108,1.10813,-.07276,-.07367,-.00605,1.07602]);
+function untoned(mat,k){
+  const uK={value:k}; mat.userData.uK=uK;
+  mat.onBeforeCompile=sh=>{
+    Object.assign(sh.uniforms,{vzInInv:{value:ACES_IN.clone().invert()},vzOutInv:{value:ACES_OUT.clone().invert()},vzK:uK});
+    sh.fragmentShader=sh.fragmentShader.replace("#include <common>",`#include <common>
+uniform mat3 vzInInv, vzOutInv; uniform float vzK;
+vec3 vzUntone(vec3 t){
+  vec3 v=clamp(vzOutInv*t,0.,1.);
+  vec3 a=1.-v*.983729, b=.0245786-v*.432951, c=-(.000090537+v*.238081);
+  return max(vzInInv*((-b+sqrt(b*b-4.*a*c))/(2.*a)),0.)/vzK;
+}`).replace("#include <metalnessmap_fragment>",`#include <metalnessmap_fragment>
+diffuseColor.rgb=mix(vzUntone(diffuseColor.rgb),diffuseColor.rgb,metalnessFactor);`);
+  };
+  mat.customProgramCacheKey=()=>"vz-untoned";
+  return mat;
+}
 
 export async function mount(sceneEl){
   const tilt=sceneEl.querySelector("#tilt"), card=sceneEl.querySelector("#bcard");
@@ -50,9 +74,9 @@ export async function mount(sceneEl){
   const aniso=renderer.capabilities.getMaxAnisotropy();
   for(const t of [texFront,texMask,texBack]) t.anisotropy=aniso;
 
-  const matFront=new THREE.MeshPhysicalMaterial({map:texFront,metalnessMap:texMask,roughnessMap:texMask,metalness:1,roughness:1,
-    clearcoat:CLEARCOAT,clearcoatRoughness:CLEARCOAT_ROUGH});
-  const matBack=new THREE.MeshPhysicalMaterial({map:texBack,roughness:BACK_ROUGH,metalness:0,clearcoat:.25,clearcoatRoughness:.4,envMapIntensity:ENV_LIGHT*BACK_LIGHT});
+  const matFront=untoned(new THREE.MeshPhysicalMaterial({map:texFront,metalnessMap:texMask,roughnessMap:texMask,metalness:1,roughness:1,
+    clearcoat:CLEARCOAT,clearcoatRoughness:CLEARCOAT_ROUGH,specularIntensity:SPECULAR}),K_FRONT);
+  const matBack=untoned(new THREE.MeshPhysicalMaterial({map:texBack,roughness:BACK_ROUGH,metalness:0,clearcoat:.1,clearcoatRoughness:.4,specularIntensity:.15,envMapIntensity:ENV_LIGHT*BACK_LIGHT}),K_BACK);
   const matEdge=new THREE.MeshPhysicalMaterial({color:EDGE_COLOR,roughness:.75,metalness:0,envMapIntensity:ENV_LIGHT*BACK_LIGHT});
 
   const pivot=new THREE.Group(); pivot.matrixAutoUpdate=false;
@@ -162,11 +186,11 @@ export async function mount(sceneEl){
     c.globalAlpha=1;
 
     // mask: lacquered stock everywhere, polished metal under the name and the rosette
-    const m=size(cvMask,front)[0], base=`rgb(0,${Math.round(BASE_ROUGH*255)},0)`, foil=`rgb(0,${Math.round(FOIL_ROUGH*255)},255)`;
+    const m=size(cvMask,front)[0], base=`rgb(0,${Math.round(BASE_ROUGH*255)},0)`, foil=`rgb(0,${Math.round(FOIL_ROUGH*255)},${Math.round(FOIL_METAL*255)})`;
     m.fillStyle=base; m.fillRect(0,0,w,h);
     for(const it of items) if(it.foil) draw(m,it.runs,foil);
     m.save(); m.setTransform(1,0,0,1,0,0);
-    if(typeof paintGuilloche==="function") paintGuilloche(m,cvMask.width,cvMask.height,Math.max(1.2,1.1*s),"rosette",foil);
+    if(typeof paintGuilloche==="function") paintGuilloche(m,cvMask.width,cvMask.height,Math.max(.6,.55*s),"rosette",`rgb(0,${Math.round(FOIL_ROUGH*255)},${Math.round(ROSETTE_METAL*255)})`);
     m.restore();
 
     // back: paper, the QR from the page's own SVG path, the handle and the hint
