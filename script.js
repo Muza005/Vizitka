@@ -251,7 +251,7 @@ function applyLang(l, save){
     if(el.dataset.html) el.innerHTML=v; else el.textContent=v;
   });
   movePill(lang);
-  $("#bcard").setAttribute("aria-label", t.card_aria);
+  $("#bcardHint").textContent=t.card_aria;
   $("#themeBtn").setAttribute("aria-label", t.theme);
   $(".langs").setAttribute("aria-label", t.lang);
   $(".nav").setAttribute("aria-label", t.sections);

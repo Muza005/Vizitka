@@ -10,7 +10,7 @@
 - Плавная смена языка и темы (тема раскрывается кругом от кнопки через View Transitions API, в остальных браузерах цвета плавно перетекают)
 - Адаптив под телефон, учёт `prefers-reduced-motion`
 
-Без фреймворков и сборки: чистые HTML, CSS и JavaScript. Шрифты Geologica и Golos Text подключаются с Google Fonts.
+Без фреймворков и сборки: чистые HTML, CSS и JavaScript. Шрифты Geologica и Golos Text лежат в папке `fonts/` (лицензия SIL OFL, тексты лицензий там же).
 
 ## Структура
 

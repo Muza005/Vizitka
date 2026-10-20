@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Музаффар Азимов — сайты и веб-приложения</title>
 <meta name="description" content="Музаффар Азимов — frontend-разработчик из Ташкента. Лендинги, каталоги, Telegram Mini App и интерфейсы CRM. Цены, проекты и контакты.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geologica:wght@500..800&family=Golos+Text:wght@400..700&display=swap">
+<link rel="preload" href="fonts/geologica-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/geologica-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/golos-text-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/golos-text-latin.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content="website">
 <meta property="og:title" content="Музаффар Азимов — сайты и веб-приложения">
 <meta property="og:description" content="Лендинги, каталоги, Telegram Mini App и интерфейсы CRM. Цены, проекты и контакты.">
@@ -55,9 +56,10 @@
         </div>
       </div>
       <div class="hero-card">
+        <span id="bcardHint" hidden>Перевернуть визитку</span>
         <div class="scene">
           <div class="tilt" id="tilt">
-          <div class="bcard" id="bcard" role="button" tabindex="0" aria-pressed="false" aria-label="Перевернуть визитку">
+          <div class="bcard" id="bcard" role="button" tabindex="0" aria-pressed="false" aria-describedby="bcardHint">
             <div class="face front">
               <div class="bc-city" data-i="city">Ташкент</div>
               <div class="bc-name" data-i="name">Музаффар Азимов</div>
