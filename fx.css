@@ -1,0 +1,53 @@
+/* Cursor effects (stage 1). Everything is scoped to html.fx, which fx.js sets only for a fine pointer
+   without reduced motion, so the page looks exactly like the original without JS or on touch. */
+:root{
+  --fx-a:34%;
+  --fx-spot:color-mix(in srgb,var(--lapis) 7%,transparent);
+  --fx-edge:color-mix(in srgb,var(--lapis) 60%,transparent);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --fx-a:42%;
+    --fx-spot:color-mix(in srgb,var(--lapis) 13%,transparent);
+    --fx-edge:color-mix(in srgb,var(--lapis) 75%,transparent);
+  }
+}
+:root[data-theme="dark"]{
+  --fx-a:42%;
+  --fx-spot:color-mix(in srgb,var(--lapis) 13%,transparent);
+  --fx-edge:color-mix(in srgb,var(--lapis) 75%,transparent);
+}
+
+/* Halo: the wrapper only moves, each layer only scales and fades */
+.fx-cursor{position:fixed;left:0;top:0;z-index:2147483000;pointer-events:none;opacity:0;--p:1;--fx-c:var(--lapis);
+  transition:opacity .45s var(--ease);will-change:transform}
+.fx-cursor.on{opacity:1}
+.fx-cursor.off{opacity:0;transition-duration:.2s}
+.fx-cursor.gold{--fx-c:var(--gold)}
+.fx-cursor.down{--p:.8}
+.fx-cursor > span{position:absolute;left:0;top:0;border-radius:50%;transform:scale(calc(var(--k,1) * var(--p)));
+  transition:transform .5s cubic-bezier(.3,1.4,.5,1),opacity .3s var(--ease)}
+.fx-cursor.down > span{transition-duration:.14s,.3s}
+.fx-glow{width:36px;height:36px;margin:-18px 0 0 -18px;
+  background:radial-gradient(circle,color-mix(in srgb,var(--fx-c) var(--fx-a),transparent) 0%,color-mix(in srgb,var(--fx-c) 12%,transparent) 48%,transparent 70%)}
+.fx-ring{width:48px;height:48px;margin:-24px 0 0 -24px;border:1.5px solid color-mix(in srgb,var(--fx-c) 70%,transparent);opacity:0;--k:.5}
+.fx-fill{width:88px;height:88px;margin:-44px 0 0 -44px;display:grid;place-items:center;opacity:0;--k:.3;
+  background:color-mix(in srgb,var(--lapis) 80%,transparent);color:var(--on-lapis);font:600 13px/1 var(--body);letter-spacing:.02em}
+.fx-cursor.gold .fx-glow{--k:1.25}
+.fx-cursor.link .fx-glow{opacity:0;--k:.4}
+.fx-cursor.link .fx-ring{opacity:1;--k:1}
+.fx-cursor.card .fx-glow{opacity:0;--k:2}
+.fx-cursor.card .fx-fill{opacity:1;--k:1}
+
+/* Spotlight: soft fill under the pointer plus a lit border cut out with a mask */
+.fx :is(.pcard,.tbox,.tg,.prow){position:relative;isolation:isolate}
+.fx :is(.pcard,.tbox,.tg,.prow)::before,
+.fx :is(.pcard,.tbox,.tg)::after{content:"";position:absolute;pointer-events:none;border-radius:inherit;opacity:0;transition:opacity .5s var(--ease)}
+.fx :is(.pcard,.tbox,.tg,.prow)::before{inset:0;z-index:-1;
+  background:radial-gradient(340px circle at var(--mx,50%) var(--my,50%),var(--fx-spot),transparent 70%)}
+.fx .prow::before{inset:0 -16px;border-radius:12px}
+.fx :is(.pcard,.tbox,.tg)::after{inset:-1px;padding:1px;
+  background:radial-gradient(220px circle at var(--mx,50%) var(--my,50%),var(--fx-edge),transparent 70%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
+.fx .fx-lit::before,.fx .fx-lit::after{opacity:1;transition-duration:.25s}
