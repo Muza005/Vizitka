@@ -51,3 +51,79 @@
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
   mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
 .fx .fx-lit::before,.fx .fx-lit::after{opacity:1;transition-duration:.25s}
+
+/* ---------- Stage 2: atmosphere and depth (every device; html.fx-base is set by fx.js) ---------- */
+:root{
+  --au-1:color-mix(in srgb,var(--lapis) 11%,transparent);
+  --au-2:color-mix(in srgb,var(--gold) 9%,transparent);
+  --au-3:color-mix(in srgb,var(--lapis) 6%,transparent);
+  --sh:12,18,52; --sh-a:.30;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --au-1:color-mix(in srgb,var(--lapis) 24%,transparent);
+    --au-2:color-mix(in srgb,var(--gold) 17%,transparent);
+    --au-3:color-mix(in srgb,var(--lapis) 13%,transparent);
+    --sh:0,0,0; --sh-a:.55;
+  }
+}
+:root[data-theme="dark"]{
+  --au-1:color-mix(in srgb,var(--lapis) 24%,transparent);
+  --au-2:color-mix(in srgb,var(--gold) 17%,transparent);
+  --au-3:color-mix(in srgb,var(--lapis) 13%,transparent);
+  --sh:0,0,0; --sh-a:.55;
+}
+
+/* Auras: big soft radial-gradient spots behind the hero, no filter blur. They reach up under the
+   translucent header and fade out toward the next section instead of ending on a hard edge. */
+.fx-base .hero{position:relative;isolation:isolate}
+.fx-aura{position:absolute;inset:-64px 0 0;z-index:-1;pointer-events:none;overflow:hidden;
+  -webkit-mask-image:linear-gradient(#000 62%,transparent);mask-image:linear-gradient(#000 62%,transparent)}
+.fx-aura > div{position:absolute;inset:0}
+.fx-aura i{position:absolute;border-radius:50%;aspect-ratio:1;translate:-50% -50%}
+.fx-aura i:nth-child(1){left:76%;top:38%;width:max(460px,62vw);
+  background:radial-gradient(closest-side,var(--au-1),color-mix(in srgb,var(--au-1) 55%,transparent) 40%,color-mix(in srgb,var(--au-1) 18%,transparent) 70%,transparent)}
+.fx-aura i:nth-child(2){left:90%;top:78%;width:max(320px,40vw);
+  background:radial-gradient(closest-side,var(--au-2),color-mix(in srgb,var(--au-2) 50%,transparent) 42%,color-mix(in srgb,var(--au-2) 15%,transparent) 72%,transparent)}
+.fx-aura i:nth-child(3){left:12%;top:92%;width:max(380px,48vw);
+  background:radial-gradient(closest-side,var(--au-3),color-mix(in srgb,var(--au-3) 50%,transparent) 42%,color-mix(in srgb,var(--au-3) 15%,transparent) 72%,transparent)}
+@media (max-width:900px){
+  .fx-aura i:nth-child(1){left:70%;top:66%}
+  .fx-aura i:nth-child(2){left:96%;top:86%}
+  .fx-aura i:nth-child(3){left:6%;top:24%}
+}
+
+/* Card depth. overflow:hidden on .face (needed to clip the rounded corners) flattens preserve-3d, and
+   clip-path would flatten it too, so real 3D layers are not an option: fx.js emulates the depth by
+   shifting each layer with translate in proportion to the tilt. The guilloche gets its own layer for that. */
+.fx-base .front{background-image:radial-gradient(circle at var(--gx,30%) var(--gy,20%),rgba(255,255,255,calc(.16 * var(--glow,0))),transparent 46%),linear-gradient(140deg,var(--card-a) 0%,var(--card-b) 100%)}
+.fx-gl{position:absolute;inset:0;z-index:-1;pointer-events:none;background:var(--gl,none) 0 0/100% 100% no-repeat}
+.fx-base .face{box-shadow:0 2px 6px rgba(12,18,52,.22),0 18px 30px -22px rgba(12,18,52,.45)}
+
+/* Ground shadow under the card: a wide soft pool plus a tight contact shadow, both radial gradients */
+.fx-base .scene{position:relative}
+.fx-shadow{position:absolute;inset:0;pointer-events:none}
+.fx-shadow i{position:absolute;border-radius:50%}
+.fx-shadow .soft{left:-2%;right:-2%;top:34%;bottom:-20%;
+  background:radial-gradient(closest-side,rgba(var(--sh),var(--sh-a)),rgba(var(--sh),calc(var(--sh-a) * .45)) 50%,transparent)}
+.fx-shadow .contact{left:10%;right:10%;top:80%;bottom:-7%;
+  background:radial-gradient(closest-side,rgba(var(--sh),calc(var(--sh-a) * 1.1)),transparent)}
+
+/* Drift and floating only with motion allowed; floating pauses under the pointer, everything
+   pauses while the hero is off screen */
+@media (prefers-reduced-motion: no-preference){
+  .fx-aura i{will-change:transform}
+  .fx-aura i:nth-child(1){animation:fxDrift1 32s ease-in-out infinite alternate}
+  .fx-aura i:nth-child(2){animation:fxDrift2 26s ease-in-out infinite alternate}
+  .fx-aura i:nth-child(3){animation:fxDrift3 38s ease-in-out infinite alternate}
+  .fx-base .tilt{animation:fxBob 6.4s ease-in-out infinite,fxSway 9.6s ease-in-out infinite}
+  .fx-shadow{animation:fxShadow 6.4s ease-in-out infinite}
+  @media (hover:hover){ .fx-base .scene:hover :is(.tilt,.fx-shadow){animation-play-state:paused} }
+  .fx-base .hero.fx-idle :is(.tilt,.fx-shadow,.fx-aura i){animation-play-state:paused}
+}
+@keyframes fxDrift1{0%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(-7%,5%,0) scale(1.08)}100%{transform:translate3d(4%,-6%,0) scale(.96)}}
+@keyframes fxDrift2{0%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(-9%,-6%,0) scale(1.12)}100%{transform:translate3d(-3%,4%,0) scale(1)}}
+@keyframes fxDrift3{0%{transform:translate3d(0,0,0) scale(1.05)}50%{transform:translate3d(8%,-5%,0) scale(.95)}100%{transform:translate3d(3%,6%,0) scale(1.1)}}
+@keyframes fxBob{0%,100%{translate:0 0}50%{translate:0 -6px}}
+@keyframes fxSway{0%,100%{rotate:0deg}30%{rotate:-.45deg}70%{rotate:.45deg}}
+@keyframes fxShadow{0%,100%{scale:1;opacity:1}50%{scale:.95;opacity:.82}}

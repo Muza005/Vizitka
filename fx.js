@@ -1,8 +1,43 @@
-/* Cursor effects: halo, magnetic buttons, spotlight cards, hero-wide gold.
-   One rAF loop drives everything; it sleeps once all motion has settled.
-   Relies on REDUCED / fine / tilt from script.js (fine is already false under reduced motion). */
+/* Decorative motion for the page.
+   Every device: hero auras, a ground shadow under the card and slow floating (CSS, off under reduced motion).
+   Fine pointer only: cursor halo, magnetic buttons, spotlight cards, hero-wide gold, card depth parallax.
+   One rAF loop drives the pointer effects; it sleeps once all motion has settled.
+   Relies on fine / tilt from script.js (fine is already false under reduced motion). */
 (function(){
-  if(typeof fine==="undefined" || !fine) return;
+  if(typeof fine==="undefined") return;
+
+  const AURA_SHIFT=.025, AURA_LERP=.04;  // aura follows the pointer by this share of its offset from center
+  const TILT_IN=.2, TILT_OUT=.07;         // how fast depth catches up with the card's tilt (while tilting / settling)
+  // Emulated height above the card surface, px: positive layers float above, negative sink below
+  const DEPTH=[[".fx-gl",-16],[".bc-city",14],[".bc-name",34],[".bc-role",22],[".bc-lines",18],[".back svg",22],[".back > div",14]];
+  const SHADOW_H=110;                     // how far below the card the "table" is, px
+
+  const root=document.documentElement;
+  const heroEl=document.querySelector(".hero"), sceneEl=document.querySelector(".scene");
+  root.classList.add("fx-base");
+
+  // Auras: three big radial-gradient spots; drift is CSS, the pointer nudges the inner layer
+  const aura=document.createElement("div");
+  aura.className="fx-aura"; aura.setAttribute("aria-hidden","true");
+  aura.innerHTML='<div><i></i><i></i><i></i></div>';
+  const auraIn=aura.firstChild;
+  if(heroEl) heroEl.prepend(aura);
+
+  // Ground shadow sits outside #tilt, so it doesn't rotate or float with the card
+  const shadow=document.createElement("div");
+  shadow.className="fx-shadow"; shadow.setAttribute("aria-hidden","true");
+  shadow.innerHTML='<i class="soft"></i><i class="contact"></i>';
+  if(sceneEl) sceneEl.prepend(shadow);
+
+  // Guilloche moves to its own layer so it can sit deeper than the text
+  const front=document.querySelector(".front");
+  if(front){ const gl=document.createElement("i"); gl.className="fx-gl"; gl.setAttribute("aria-hidden","true"); front.prepend(gl); }
+
+  // Nothing animates while the hero is off screen
+  if(heroEl && "IntersectionObserver" in window)
+    new IntersectionObserver(([e])=>heroEl.classList.toggle("fx-idle",!e.isIntersecting)).observe(heroEl);
+
+  if(!fine) return;
 
   const HALO_LERP=.18;                    // halo follow per frame
   const MAG_SEL=".btn-primary,.btn-ghost,.icon-btn,.tg";
@@ -13,7 +48,6 @@
   const LINK_SEL="a,button,[role=button],label,input,select,textarea,summary";
   const OPEN={ru:"Открыть",uz:"Ochish",en:"Open"};
 
-  const root=document.documentElement;
   root.classList.add("fx");
 
   const halo=document.createElement("div");
@@ -27,6 +61,9 @@
   let mags=[], spots=new Map(), hero=null, scene=null, lit=null, mode="";
   const springs=new WeakMap();
   let gold=GOLD_REST, goldOn=false;
+  let vw=innerWidth, vh=innerHeight, ax=0, ay=0, rx=0, ry=0;
+  const layers=DEPTH.flatMap(([sel,h])=>[...document.querySelectorAll(sel)].map(el=>({el,h})));
+  const soft=shadow.querySelector(".soft"), contact=shadow.querySelector(".contact");
 
   /* Layout is read only here (from event handlers), never inside the loop. Rects are stored in
      document space so scrolling doesn't invalidate them; header and dialog content stay in viewport space. */
@@ -45,7 +82,7 @@
     hero=h&&box(h); scene=sc&&box(sc);
   }
   const markDirty=()=>{ dirty=true; };
-  addEventListener("resize",markDirty,{passive:true});
+  addEventListener("resize",()=>{ markDirty(); vw=innerWidth; vh=innerHeight; },{passive:true});
   if("ResizeObserver" in window) new ResizeObserver(markDirty).observe(document.body);
   new MutationObserver(markDirty).observe(document.body,{childList:true,subtree:true});
   const strip=document.getElementById("strip");
@@ -146,6 +183,33 @@
         if(!goldOn) gold=target;
         tilt.style.setProperty("--sx",gold.toFixed(2));
         if(Math.abs(target-gold)>.05) busy=true;
+      }
+    }
+
+    // auras lean slightly toward the pointer
+    {
+      const tx=px>-999?(px-vw/2)*AURA_SHIFT:0, ty=px>-999?(py-vh/2)*AURA_SHIFT:0;
+      if(Math.abs(tx-ax)+Math.abs(ty-ay)>.05){
+        ax+=(tx-ax)*AURA_LERP; ay+=(ty-ay)*AURA_LERP; busy=true;
+        auraIn.style.transform=`translate3d(${ax.toFixed(2)}px,${ay.toFixed(2)}px,0)`;
+      }
+    }
+
+    // depth: follow the tilt script.js writes into #tilt (inline style, not layout) and
+    // shift each layer by h·sin(angle), as a point h px above the card plane would move
+    {
+      const tRx=parseFloat(tilt.style.getPropertyValue("--rx"))||0, tRy=parseFloat(tilt.style.getPropertyValue("--ry"))||0;
+      if(Math.abs(tRx-rx)+Math.abs(tRy-ry)>.01){
+        const k=tilt.classList.contains("tilting")?TILT_IN:TILT_OUT;
+        rx+=(tRx-rx)*k; ry+=(tRy-ry)*k; busy=true;
+        if(Math.abs(tRx-rx)+Math.abs(tRy-ry)<=.01){ rx=tRx; ry=tRy; }
+        const sx=Math.sin(ry*Math.PI/180), sy=-Math.sin(rx*Math.PI/180);
+        for(const l of layers) l.el.style.translate=`${(sx*l.h).toFixed(2)}px ${(sy*l.h).toFixed(2)}px`;
+        // the shadow lies below the card, so it slides the other way and spreads as the tilt grows
+        const m=Math.min(1,Math.hypot(sx,sy)/.17);
+        shadow.style.translate=`${(-sx*SHADOW_H).toFixed(2)}px ${(-sy*SHADOW_H).toFixed(2)}px`;
+        soft.style.transform=`scale(${(1+m*.08).toFixed(3)})`;
+        contact.style.opacity=(1-m*.55).toFixed(3);
       }
     }
 
