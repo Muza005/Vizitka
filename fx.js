@@ -243,7 +243,6 @@
   const SPOT_SEL=".pcard,.tbox,.tg,.prow";
   const GOLD_LERP=.08, GOLD_REST=40;      // --sx easing and resting value
   const LINK_SEL="a,button,[role=button],label,input,select,textarea,summary";
-  const OPEN={ru:"Открыть",uz:"Ochish",en:"Open"};
   const PV_TILT=7, PV_PERSP=900, PV_LERP=.12; // project cover tilt: max angle (deg), perspective (px), follow per frame
   const PV_DELAY=350, PV_SLIDE=1900, PV_FADE=600; // hover preview: start delay, time per shot, crossfade (ms)
   const PV_ZOOM=1.07;                     // Ken Burns zoom for regular shots; tall ones scroll down instead
@@ -252,8 +251,7 @@
 
   const halo=document.createElement("div");
   halo.className="fx-cursor"; halo.setAttribute("aria-hidden","true");
-  halo.innerHTML='<span class="fx-glow"></span><span class="fx-ring"></span><span class="fx-fill"></span>';
-  const label=halo.querySelector(".fx-fill");
+  halo.innerHTML='<span class="fx-glow"></span><span class="fx-ring"></span>';
   document.body.append(halo);
 
   let px=-999, py=-999, hx=0, hy=0, seen=false, moved=false;
@@ -305,13 +303,12 @@
   function setMode(m){
     if(m===mode) return;
     halo.classList.remove(mode||"_"); mode=m; if(m) halo.classList.add(m);
-    if(m==="card") label.textContent=OPEN[root.lang]||OPEN.ru;
   }
   document.addEventListener("pointerover",e=>{
     if(e.pointerType!=="mouse") return;
     const t=e.target, pc=t.closest("a.pcard");
     if(pc!==hov) hoverCard(pc);
-    setMode(pc?"card":t.closest("#bcard")?"gold":t.closest(LINK_SEL)?"link":"");
+    setMode(t.closest("#bcard")?"gold":t.closest(LINK_SEL)?"link":"");
     const s=t.closest(SPOT_SEL);
     if(s!==lit){ if(lit) lit.classList.remove("fx-lit"); lit=s; if(s){ s.classList.add("fx-lit"); moved=true; wake(); } }
   },{passive:true});

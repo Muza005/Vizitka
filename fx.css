@@ -31,13 +31,9 @@
 .fx-glow{width:36px;height:36px;margin:-18px 0 0 -18px;
   background:radial-gradient(circle,color-mix(in srgb,var(--fx-c) var(--fx-a),transparent) 0%,color-mix(in srgb,var(--fx-c) 12%,transparent) 48%,transparent 70%)}
 .fx-ring{width:48px;height:48px;margin:-24px 0 0 -24px;border:1.5px solid color-mix(in srgb,var(--fx-c) 70%,transparent);opacity:0;--k:.5}
-.fx-fill{width:88px;height:88px;margin:-44px 0 0 -44px;display:grid;place-items:center;opacity:0;--k:.3;
-  background:color-mix(in srgb,var(--lapis) 80%,transparent);color:var(--on-lapis);font:600 13px/1 var(--body);letter-spacing:.02em}
 .fx-cursor.gold .fx-glow{--k:1.25}
 .fx-cursor.link .fx-glow{opacity:0;--k:.4}
 .fx-cursor.link .fx-ring{opacity:1;--k:1}
-.fx-cursor.card .fx-glow{opacity:0;--k:2}
-.fx-cursor.card .fx-fill{opacity:1;--k:1}
 
 /* Spotlight: soft fill under the pointer plus a lit border cut out with a mask */
 .fx :is(.pcard,.tbox,.tg,.prow){position:relative;isolation:isolate}
