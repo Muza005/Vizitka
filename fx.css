@@ -74,7 +74,7 @@
    so a font swap that changes the hero height doesn't move them (that would count as layout shift). They reach up under the
    translucent header and fade out toward the next section instead of ending on a hard edge. */
 /* no isolation here: the pinned card has to rise above the sticky header (stage 3) */
-.fx-base .hero{position:relative}
+.fx-base .hero{position:relative;overflow-x:clip} /* clip, not hidden: no scroll container, so the pinned card can still leave it upward */
 .fx-aura{position:absolute;inset:-64px 0 0;z-index:-1;pointer-events:none;overflow:hidden;
   -webkit-mask-image:linear-gradient(#000 62%,transparent);mask-image:linear-gradient(#000 62%,transparent)}
 .fx-aura > div{position:absolute;inset:0}
@@ -195,3 +195,11 @@ html.fx-vt::view-transition-new(root){animation:fxVtFade .4s var(--ease) both}
 ::view-transition-new(fx-pd):only-child{animation:pdIn .45s var(--ease) both}
 ::view-transition-old(fx-pd):only-child{animation:pdOut .32s cubic-bezier(.4,0,1,1) both}
 @keyframes fxVtFade{from{opacity:0}}
+
+/* ---------- Stage 5: WebGL card (card3d.js) ---------- */
+/* The canvas lies over the DOM card and ignores the pointer, so clicks, keys and focus stay on #bcard.
+   .fx-3d crossfades: canvas in, DOM faces out (and back while the card is pinned in the header). */
+.fx-3d-canvas{position:absolute;pointer-events:none;opacity:0;transition:opacity .6s var(--ease)}
+.scene.fx-3d .fx-3d-canvas{opacity:1}
+.fx-base .face{transition:opacity .6s var(--ease)}
+.scene.fx-3d .face{opacity:0}

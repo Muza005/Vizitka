@@ -1,6 +1,8 @@
 /* Decorative motion for the page.
-   Every device: hero auras, a ground shadow under the card and slow floating (CSS, off under reduced motion).
-   Fine pointer only: cursor halo, magnetic buttons, spotlight cards, hero-wide gold, card depth parallax.
+   Every device: hero auras, a ground shadow under the card and slow floating (CSS, off under reduced motion);
+   scroll reveals, price count-up, the pinned card, the project card ⇄ dialog morph (all off under reduced motion).
+   Fine pointer only: cursor halo, magnetic buttons, spotlight cards, hero-wide gold, card depth parallax,
+   project cover tilt and hover preview; on capable devices it also loads the WebGL card (card3d.js).
    One rAF loop drives the pointer effects; it sleeps once all motion has settled.
    Relies on fine / tilt from script.js (fine is already false under reduced motion). */
 (function(){
@@ -19,6 +21,7 @@
   const COUNT_DUR=1100;                   // price count-up, ms
   const PIN_FADE=.82, PIN_SAMPLES=24;     // card fades into the logo after this share of the flight
   const MORPH_WAIT=300;                   // how long the card → dialog morph waits for the first frame to decode, ms
+  const MIN_MEMORY=4, MIN_CORES=4;        // 3D card: weaker devices keep the CSS card (deviceMemory GB, hardwareConcurrency)
 
   const root=document.documentElement;
   const heroEl=document.querySelector(".hero"), sceneEl=document.querySelector(".scene");
@@ -232,6 +235,20 @@
       }
     };
     pd.addEventListener("close",()=>pd.classList.remove("fx-morphed"));
+  }
+
+  /* ---------- 3D card: card3d.js + Three.js, loaded once the page is idle, only where it runs well ---------- */
+  // ?3d=1 / ?3d=0 force it on or off for testing; without WebGL2 it never loads
+  const want3d=(()=>{
+    const q=new URLSearchParams(location.search).get("3d");
+    if(q==="0" || !sceneEl || !window.WebGL2RenderingContext) return false;
+    if(q==="1") return true;
+    return fine && (navigator.deviceMemory||8)>=MIN_MEMORY && (navigator.hardwareConcurrency||8)>=MIN_CORES;
+  })();
+  if(want3d){
+    const go=()=>import("./card3d.js").then(m=>m.mount(sceneEl)).catch(()=>{}); // on failure the CSS card just stays
+    const idle=()=>"requestIdleCallback" in window?requestIdleCallback(go,{timeout:2500}):setTimeout(go,300);
+    if(document.readyState==="complete") idle(); else addEventListener("load",idle,{once:true});
   }
 
   if(!fine) return;

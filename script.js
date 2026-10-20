@@ -311,7 +311,7 @@ let themeTimer;
 $("#themeBtn").addEventListener("click",()=>{
   const root=document.documentElement;
   const next = effectiveDark() ? "light" : "dark";
-  const apply=()=>{ root.setAttribute("data-theme", next); store.set("theme", next); };
+  const apply=()=>{ root.setAttribute("data-theme", next); store.set("theme", next); document.dispatchEvent(new CustomEvent("vz:theme")); };
   if(REDUCED){ apply(); return; }
   if(document.startViewTransition){
     const b=$("#themeBtn").getBoundingClientRect();
@@ -507,9 +507,15 @@ function drawGuilloche(){
   const cv=document.createElement("canvas");
   cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr);
   const ctx=cv.getContext("2d"), W=cv.width, H=cv.height;
-  ctx.clearRect(0,0,W,H); ctx.lineWidth=Math.max(.6,.55*dpr);
+  ctx.clearRect(0,0,W,H);
+  paintGuilloche(ctx,W,H,Math.max(.6,.55*dpr));
+  front.style.setProperty("--gl", `url("${cv.toDataURL("image/png")}")`);
+}
+// Also used by card3d.js for the WebGL card's textures: only = "band" | "rosette" | undefined (both), ink overrides the colors
+function paintGuilloche(ctx,W,H,lw,only,ink){
+  ctx.lineWidth=lw;
   // woven band across the lower card
-  for(let s=0;s<2;s++){
+  if(only!=="rosette") for(let s=0;s<2;s++){
     for(let i=0;i<26;i++){
       ctx.beginPath();
       const base=H*.66+i*H*.006, amp=H*.075, ph=i*.22+(s?Math.PI:0);
@@ -518,9 +524,10 @@ function drawGuilloche(){
         const y=base+Math.sin(u*2.2+ph)*amp*Math.sin(u*.9+.6)+Math.sin(u*7+ph)*H*.006;
         x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
       }
-      ctx.strokeStyle=`rgba(255,255,255,${s?0.07:0.1})`; ctx.stroke();
+      ctx.strokeStyle=ink||`rgba(255,255,255,${s?0.07:0.1})`; ctx.stroke();
     }
   }
+  if(only==="band") return;
   // rosette in the upper right corner
   const cx=W*.84, cy=H*.24, R=H*.2;
   for(let k=0;k<3;k++){
@@ -531,9 +538,8 @@ function drawGuilloche(){
       const x=cx+rr*Math.cos(t), y=cy+rr*Math.sin(t);
       t===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
     }
-    ctx.strokeStyle="rgba(242,206,122,.28)"; ctx.stroke();
+    ctx.strokeStyle=ink||"rgba(242,206,122,.28)"; ctx.stroke();
   }
-  front.style.setProperty("--gl", `url("${cv.toDataURL("image/png")}")`);
 }
 let guillocheT;
 const queueGuilloche=()=>{ clearTimeout(guillocheT); guillocheT=setTimeout(drawGuilloche,120); };
