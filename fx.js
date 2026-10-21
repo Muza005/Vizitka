@@ -52,6 +52,69 @@
   if(heroEl && "IntersectionObserver" in window)
     new IntersectionObserver(([e])=>heroEl.classList.toggle("fx-idle",!e.isIntersecting)).observe(heroEl);
 
+  /* ---------- hero text keeps its height across languages ---------- */
+  // The title wraps to 4 lines in RU and 3 in EN (and the lead differs by width), so a switch used to resize the hero
+  // and jolt the card and every section below it. From the first switch on, each block reserves the height of its
+  // tallest language: the spare room goes above the title (it sits on the lead) and below the lead and the buttons,
+  // so their tops stay put too. Not before it: at load the scripts can run after the first paint, and reserving then
+  // would itself shift the page. If that first reserve grows the hero, the card and everything below glide to their
+  // new places (FLIP on translate) while the text fades back in.
+  // Afterwards a ResizeObserver redoes it whenever a block's text box changes (width, the web font): it runs after
+  // layout but before paint, and the reserve is padding, outside the observed content box, so it doesn't loop.
+  const HOLD=[[".hero h1","paddingTop"],[".hero .lead","paddingBottom"],[".hero .actions","paddingBottom"]];
+  const HOLD_MOVERS=".hero-card, .hero ~ section, body > footer", HOLD_DUR=380; // ms, as the text's fade-in in script.js
+  const holdItems=typeof T==="undefined"?[]:HOLD.map(([sel,prop])=>({el:document.querySelector(sel),prop})).filter(x=>x.el);
+  function holdHero(){
+    const items=holdItems;
+    if(!items.length) return;
+    const langs=Object.keys(T);
+    for(const it of items) it.el.style[it.prop]="";
+    // every language in a hidden copy of the block, at the block's width; all appended first, then read once
+    for(const it of items){
+      const width=it.el.getBoundingClientRect().width;
+      it.copies=langs.map(l=>{
+        const c=it.el.cloneNode(true);
+        c.removeAttribute("style"); c.lang=l; c.setAttribute("aria-hidden","true"); c.inert=true;
+        c.style.cssText=`position:absolute;left:0;top:0;width:${width}px;visibility:hidden;pointer-events:none;animation:none`;
+        for(const n of [c,...c.querySelectorAll("[data-i]")]){
+          const v=T[l][n.dataset.i]; if(typeof v!=="string") continue;
+          if(n.dataset.html) n.innerHTML=v; else n.textContent=v;
+        }
+        it.el.parentElement.append(c);
+        return c;
+      });
+    }
+    for(const it of items){
+      const hs=it.copies.map(c=>c.getBoundingClientRect().height);
+      it.copies.forEach(c=>c.remove());
+      const max=Math.max(...hs), own=hs[langs.indexOf(lang)];
+      it.el.style[it.prop]=own!=null && max-own>.5?`${(max-own).toFixed(2)}px`:"";
+      it.copies=null;
+    }
+  }
+  if(holdItems.length){
+    let holding=false, before=null;
+    // layout position in the document, transforms (a running glide) left out
+    const layoutTop=el=>{ let y=0; for(let e=el;e;e=e.offsetParent) y+=e.offsetTop; return y; };
+    const movers=()=>[...document.querySelectorAll(HOLD_MOVERS)];
+    // a switch starts with a click on a language; script.js fades the text out first, so nothing has moved yet
+    document.addEventListener("click",e=>{
+      if(e.target.closest && e.target.closest(".langs button")) before=movers().map(el=>[el,layoutTop(el)]);
+    },true);
+    document.addEventListener("vz:lang",()=>{
+      holding=true; holdHero();
+      if(before && !REDUCED) for(const [el,y] of before){
+        const d=y-layoutTop(el);
+        if(Math.abs(d)>.5) el.animate({translate:[`0 ${d.toFixed(1)}px`,"0 0"]},{duration:HOLD_DUR,easing:"cubic-bezier(.22,.61,.36,1)"});
+      }
+      before=null;
+    });
+    if("ResizeObserver" in window){
+      const ro=new ResizeObserver(()=>{ if(holding) holdHero(); });
+      holdItems.forEach(it=>ro.observe(it.el));
+    }
+  }
+
   /* ---------- scroll reveal ---------- */
   // Content is hidden only once html.fx-rv is set here, so without JS (or with reduced motion) it's all just visible.
   // A block waits (.fx-wait) until it scrolls in, plays once (.fx-in), then settles (no class), so pieces that
