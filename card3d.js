@@ -20,6 +20,7 @@ const BACK_ROUGH=.62, BACK_LIGHT=1.8, EDGE_COLOR=0xEEF1FA; // BACK_LIGHT: white 
 const GLINT=.15, GLINT_HOVER=.7, GLINT_Z=360, GLINT_LERP=.12; // cursor light on the foil: intensity at rest / hovered, height above the card (px)
 const K_FRONT=1.7, K_BACK=2.8;            // light at rest, for the inverse tone curve below (calibrated against the CSS card)
 const SWAP_SCALE=.97;                // pinned card (stage 3): below this scale the DOM mini card takes over
+const FADE_BLUR_K=1;                 // language switch: CSS blur radius (px) → mipmap level, log2(1 + K·radius·texels per px)
 
 const S=new THREE.Matrix4().makeScale(1,-1,1); // CSS y points down
 
@@ -43,6 +44,33 @@ vec3 vzUntone(vec3 t){
 diffuseColor.rgb=mix(vzUntone(diffuseColor.rgb),diffuseColor.rgb,metalnessFactor);`);
   };
   mat.customProgramCacheKey=()=>"vz-untoned";
+  return mat;
+}
+
+/* The language switch (script.js) fades the DOM card's text out blurred and back in rising 5px. Each face carries
+   the same fade: it has a plain version without text (base), and what the text adds over it (full − base) is
+   scaled by the text's opacity, blurred through the mipmaps and shifted, so the guilloche and the paper underneath
+   stay sharp and still. With the mask, the gold foil of the name fades the same way. */
+function fading(mat,base,baseMask){
+  const u={vzBase:{value:base},vzBaseMask:{value:baseMask||base},vzA:{value:1},vzBias:{value:0},vzShift:{value:new THREE.Vector2()}};
+  const prev=mat.onBeforeCompile;
+  const text=(tex,b)=>`(texture2D(${b},vMapUv)+vzA*(texture2D(${tex},vMapUv+vzShift,vzBias)-texture2D(${b},vMapUv+vzShift,vzBias)))`;
+  // colours mix in sRGB, as the browser blends the DOM text, so half-faded text looks the same on both
+  const S=x=>`sRGBTransferOETF(${x})`;
+  const color=`sRGBTransferEOTF(${S("texture2D(vzBase,vMapUv)")}+vzA*(${S("texture2D(map,vMapUv+vzShift,vzBias)")}-${S("texture2D(vzBase,vMapUv+vzShift,vzBias)")}))`;
+  mat.onBeforeCompile=sh=>{
+    prev(sh);
+    Object.assign(sh.uniforms,u);
+    sh.fragmentShader=sh.fragmentShader.replace("#include <common>",`#include <common>
+uniform sampler2D vzBase, vzBaseMask; uniform float vzA, vzBias; uniform vec2 vzShift;`)
+      .replace("#include <map_fragment>",`diffuseColor*=${color};`);
+    if(baseMask) sh.fragmentShader=sh.fragmentShader
+      .replace("#include <roughnessmap_fragment>",`vec4 vzMask=${text("roughnessMap","vzBaseMask")};
+float roughnessFactor=roughness*vzMask.g;`)
+      .replace("#include <metalnessmap_fragment>","float metalnessFactor=metalness*vzMask.b;");
+  };
+  mat.customProgramCacheKey=()=>"vz-untoned-fade"+(baseMask?"-mask":"");
+  mat.userData.fade=u;
   return mat;
 }
 
@@ -70,16 +98,21 @@ export async function mount(sceneEl){
   const glint=new THREE.PointLight(0xFFF1D6,GLINT,0,0);
   scene.add(glint);
 
-  // textures: front colour, front metal/rough mask (G = roughness, B = metalness), back colour
-  const cvFront=document.createElement("canvas"), cvMask=document.createElement("canvas"), cvBack=document.createElement("canvas");
-  const texFront=new THREE.CanvasTexture(cvFront), texMask=new THREE.CanvasTexture(cvMask), texBack=new THREE.CanvasTexture(cvBack);
-  texFront.colorSpace=texBack.colorSpace=THREE.SRGBColorSpace;   // the mask is data and stays linear
-  const aniso=renderer.capabilities.getMaxAnisotropy();
-  for(const t of [texFront,texMask,texBack]) t.anisotropy=aniso;
+  // textures: front colour, front metal/rough mask (G = roughness, B = metalness), back colour;
+  // each with the text (full) and without it (base, for the language fade)
+  const canvasTex=srgb=>{
+    const cv=document.createElement("canvas"), t=new THREE.CanvasTexture(cv);
+    if(srgb) t.colorSpace=THREE.SRGBColorSpace;   // the mask is data and stays linear
+    t.anisotropy=renderer.capabilities.getMaxAnisotropy();
+    return [cv,t];
+  };
+  const [cvFront,texFront]=canvasTex(true), [cvMask,texMask]=canvasTex(false), [cvBack,texBack]=canvasTex(true);
+  const [cvFrontBase,texFrontBase]=canvasTex(true), [cvMaskBase,texMaskBase]=canvasTex(false), [cvBackBase,texBackBase]=canvasTex(true);
+  const textures=[texFront,texMask,texBack,texFrontBase,texMaskBase,texBackBase];
 
-  const matFront=untoned(new THREE.MeshPhysicalMaterial({map:texFront,metalnessMap:texMask,roughnessMap:texMask,metalness:1,roughness:1,
-    clearcoat:CLEARCOAT,clearcoatRoughness:CLEARCOAT_ROUGH,specularIntensity:SPECULAR}),K_FRONT);
-  const matBack=untoned(new THREE.MeshPhysicalMaterial({map:texBack,roughness:BACK_ROUGH,metalness:0,clearcoat:.1,clearcoatRoughness:.4,specularIntensity:.15,envMapIntensity:ENV_LIGHT*BACK_LIGHT}),K_BACK);
+  const matFront=fading(untoned(new THREE.MeshPhysicalMaterial({map:texFront,metalnessMap:texMask,roughnessMap:texMask,metalness:1,roughness:1,
+    clearcoat:CLEARCOAT,clearcoatRoughness:CLEARCOAT_ROUGH,specularIntensity:SPECULAR}),K_FRONT),texFrontBase,texMaskBase);
+  const matBack=fading(untoned(new THREE.MeshPhysicalMaterial({map:texBack,roughness:BACK_ROUGH,metalness:0,clearcoat:.1,clearcoatRoughness:.4,specularIntensity:.15,envMapIntensity:ENV_LIGHT*BACK_LIGHT}),K_BACK),texBackBase);
   const matEdge=new THREE.MeshPhysicalMaterial({color:EDGE_COLOR,roughness:.75,metalness:0,envMapIntensity:ENV_LIGHT*BACK_LIGHT});
 
   const pivot=new THREE.Group(); pivot.matrixAutoUpdate=false;
@@ -128,7 +161,13 @@ export async function mount(sceneEl){
     return g;
   }
   function pos(el,face){ let x=0,y=0; for(let e=el;e&&e!==face;e=e.offsetParent){ x+=e.offsetLeft; y+=e.offsetTop; } return [x,y]; }
-  function alpha(el,face){ let a=1; for(let e=el;e&&e!==face;e=e.parentElement) a*=parseFloat(getComputedStyle(e).opacity)||0; return a; }
+  // the text's own opacity, without the language fade: an element that is animating keeps its last resting value
+  const restOpacity=new WeakMap();
+  function opacity(e){
+    if(e.getAnimations().length) return restOpacity.has(e)?restOpacity.get(e):1;
+    const o=parseFloat(getComputedStyle(e).opacity)||0; restOpacity.set(e,o); return o;
+  }
+  function alpha(el,face){ let a=1; for(let e=el;e&&e!==face;e=e.parentElement) a*=opacity(e); return a; }
   // text laid out like the DOM: the element's font, letter spacing and line height, wrapped at its width
   // (NBSP stays inside words, as in the page)
   function lines(c,el,text,x,y,w){
@@ -172,34 +211,30 @@ export async function mount(sceneEl){
     const c=cv.getContext("2d"); c.setTransform(s,0,0,s,0,0); c.textBaseline="alphabetic";
     return [c,s,w,h];
   }
-  function paint(){
-    // front colour: the CSS gradient, the shared guilloche, then the text; the name in its gold gradient
-    let [c,s,w,h]=size(cvFront,front);
+  // a full texture starts as a copy of its base
+  function over(cv,base,face){
+    const r=size(cv,face), c=r[0];
+    c.save(); c.setTransform(1,0,0,1,0,0); c.drawImage(base,0,0); c.restore();
+    return r;
+  }
+  let texScale=1;
+  // base: front gradient and guilloche, its mask (lacquered stock, a touch of metal in the rosette), back paper and QR
+  function paintBase(){
+    let [c,s,w,h]=size(cvFrontBase,front);
+    texScale=s;
     c.fillStyle=grad(c,0,0,w,h,140,[[0,css(front,"--card-a")],[1,css(front,"--card-b")]]);
     c.fillRect(0,0,w,h);
     c.save(); c.setTransform(1,0,0,1,0,0);
-    if(typeof paintGuilloche==="function") paintGuilloche(c,cvFront.width,cvFront.height,Math.max(.6,.55*s));
+    if(typeof paintGuilloche==="function") paintGuilloche(c,cvFrontBase.width,cvFrontBase.height,Math.max(.6,.55*s));
     c.restore();
-    const items=frontText(c);
-    for(const it of items){
-      c.globalAlpha=it.alpha;
-      if(it.foil){
-        const [x,y]=pos(it.el,front);
-        draw(c,it.runs,grad(c,x,y,it.el.offsetWidth,it.el.offsetHeight,100,[[0,"#B7822A"],[.4,"#F8DD98"],[.62,"#C9952F"],[1,"#F3D27F"]]));
-      } else draw(c,it.runs);
-    }
-    c.globalAlpha=1;
 
-    // mask: lacquered stock everywhere, polished metal under the name and the rosette
-    const m=size(cvMask,front)[0], base=`rgb(0,${Math.round(BASE_ROUGH*255)},0)`, foil=`rgb(0,${Math.round(FOIL_ROUGH*255)},${Math.round(FOIL_METAL*255)})`;
-    m.fillStyle=base; m.fillRect(0,0,w,h);
-    for(const it of items) if(it.foil) draw(m,it.runs,foil);
+    const m=size(cvMaskBase,front)[0];
+    m.fillStyle=`rgb(0,${Math.round(BASE_ROUGH*255)},0)`; m.fillRect(0,0,w,h);
     m.save(); m.setTransform(1,0,0,1,0,0);
-    if(typeof paintGuilloche==="function") paintGuilloche(m,cvMask.width,cvMask.height,Math.max(.6,.55*s),"rosette",`rgb(0,${Math.round(FOIL_ROUGH*255)},${Math.round(ROSETTE_METAL*255)})`);
+    if(typeof paintGuilloche==="function") paintGuilloche(m,cvMaskBase.width,cvMaskBase.height,Math.max(.6,.55*s),"rosette",`rgb(0,${Math.round(FOIL_ROUGH*255)},${Math.round(ROSETTE_METAL*255)})`);
     m.restore();
 
-    // back: paper, the QR from the page's own SVG path, the handle and the hint
-    [c,s,w,h]=size(cvBack,back);
+    [c,s,w,h]=size(cvBackBase,back);
     c.fillStyle=getComputedStyle(back).backgroundColor; c.fillRect(0,0,w,h);
     const svg=back.querySelector("svg"), path=svg&&svg.querySelector("path");
     if(path){
@@ -211,6 +246,25 @@ export async function mount(sceneEl){
       c.fillStyle=getComputedStyle(svg).color; c.fill(new Path2D(path.getAttribute("d")));
       c.restore();
     }
+    for(const t of [texFrontBase,texMaskBase,texBackBase]) t.needsUpdate=true;
+  }
+  // full: the base with the text in the current language; the name in its gold gradient, and as foil in the mask
+  function paintText(){
+    let [c]=over(cvFront,cvFrontBase,front);
+    const items=frontText(c);
+    for(const it of items){
+      c.globalAlpha=it.alpha;
+      if(it.foil){
+        const [x,y]=pos(it.el,front);
+        draw(c,it.runs,grad(c,x,y,it.el.offsetWidth,it.el.offsetHeight,100,[[0,"#B7822A"],[.4,"#F8DD98"],[.62,"#C9952F"],[1,"#F3D27F"]]));
+      } else draw(c,it.runs);
+    }
+    c.globalAlpha=1;
+
+    const m=over(cvMask,cvMaskBase,front)[0], foil=`rgb(0,${Math.round(FOIL_ROUGH*255)},${Math.round(FOIL_METAL*255)})`;
+    for(const it of items) if(it.foil) draw(m,it.runs,foil);
+
+    [c]=over(cvBack,cvBackBase,back);
     for(const el of back.querySelectorAll("strong,p")){
       const [x,y]=pos(el,back);
       c.globalAlpha=alpha(el,back); draw(c,lines(c,el,el.textContent,x,y,el.clientWidth));
@@ -218,6 +272,7 @@ export async function mount(sceneEl){
     c.globalAlpha=1;
     for(const t of [texFront,texMask,texBack]) t.needsUpdate=true;
   }
+  function paint(){ paintBase(); paintText(); }
 
   /* ---------- pose: the DOM card's current transforms, composed the way CSS does ---------- */
   const tmp=new THREE.Matrix4();
@@ -234,8 +289,18 @@ export async function mount(sceneEl){
     if(cc.transform!=="none") m.multiplySelf(new DOMMatrix(cc.transform));
     return {m,sx:parseFloat(cc.getPropertyValue("--sx"))||40,gy:parseFloat(cs.getPropertyValue("--gy"))||20,glow:parseFloat(cs.getPropertyValue("--glow"))||0};
   }
+  // the language fade, read from the DOM text it mirrors: opacity, blur(), translateY
+  const fadeFront=front.querySelector(".bc-name"), fadeBack=back.querySelector(":scope > div");
+  function fadeFrom(el,u){
+    if(!el) return;
+    const cs=getComputedStyle(el), b=/blur\(([\d.]+)px\)/.exec(cs.filter);
+    u.vzA.value=parseFloat(cs.opacity);
+    u.vzBias.value=b?Math.log2(1+FADE_BLUR_K*parseFloat(b[1])*texScale):0;
+    u.vzShift.value.set(0,cs.transform==="none"?0:new DOMMatrix(cs.transform).m42/H);
+  }
   let gx=0, gy=0, gi=GLINT;
   function frame(){
+    fadeFrom(fadeFront,matFront.userData.fade); fadeFrom(fadeBack,matBack.userData.fade);
     const {m,sx,gy:py,glow}=cssMatrix();
     tmp.fromArray(m.toFloat32Array());
     pivot.matrix.copy(S).multiply(tmp).multiply(S);
@@ -266,17 +331,15 @@ export async function mount(sceneEl){
   const onVis=()=>sync();
   let bt=0;
   const rebuild=()=>{ clearTimeout(bt); bt=setTimeout(()=>{ if(dead) return; build(); frame(); },150); };
-  // the language switch fades the card's text out and back in (WAAPI), so paint once that has finished
-  const textSettled=async()=>{
-    for(let i=0;i<5;i++){
-      const a=card.getAnimations({subtree:true}).filter(x=>x.effect && x.effect.target!==card && !x.effect.target.classList.contains("face"));
-      if(!a.length) return;
-      await Promise.all(a.map(x=>x.finished.catch(()=>{})));
-    }
+  // vz:lang comes mid-switch, while the text is faded out: the new text is painted right away and fades in with
+  // the page; a font that only starts loading for the new text repaints it once it's in
+  const relang=()=>{
+    if(dead) return;
+    paintText();
+    if(document.fonts && document.fonts.status==="loading") document.fonts.ready.then(()=>{ if(!dead) paintText(); });
   };
   const repaint=async()=>{
     if(document.fonts) await document.fonts.ready;
-    await textSettled();
     if(!dead){ paint(); frame(); }
   };
   const ro=new ResizeObserver(()=>{ if(card.offsetWidth!==W || card.offsetHeight!==H) rebuild(); });
@@ -287,11 +350,11 @@ export async function mount(sceneEl){
     renderer.setAnimationLoop(null);
     io.disconnect(); ro.disconnect(); clearTimeout(bt); cancelAnimationFrame(sr);
     removeEventListener("scroll",onScroll); document.removeEventListener("visibilitychange",onVis);
-    document.removeEventListener("vz:lang",repaint); document.removeEventListener("vz:theme",repaint);
+    document.removeEventListener("vz:lang",relang); document.removeEventListener("vz:theme",repaint);
     dark.removeEventListener("change",repaint);
     sceneEl.classList.remove("fx-3d");
     geos.forEach(g=>g.dispose());
-    for(const x of [matFront,matBack,matEdge,texFront,texMask,texBack,env]) if(x) x.dispose();
+    for(const x of [matFront,matBack,matEdge,...textures,env]) if(x) x.dispose();
     renderer.dispose();
     canvas.remove();
   }
@@ -314,7 +377,7 @@ export async function mount(sceneEl){
   sceneEl.append(canvas);
   build();
   await yieldTask(); if(dead) return null;
-  for(const t of [texFront,texMask,texBack]){ renderer.initTexture(t); await yieldTask(); }
+  for(const t of textures){ renderer.initTexture(t); await yieldTask(); }
   if(dead) return null;
   if(parallel){ try{ await renderer.compileAsync(scene,camera); }catch(e){} }
   else renderer.compile(scene,camera);
@@ -327,7 +390,7 @@ export async function mount(sceneEl){
   ro.observe(card);
   addEventListener("scroll",onScroll,{passive:true});
   document.addEventListener("visibilitychange",onVis);
-  document.addEventListener("vz:lang",repaint);
+  document.addEventListener("vz:lang",relang);
   document.addEventListener("vz:theme",repaint);
   dark.addEventListener("change",repaint);
   sync();
