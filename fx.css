@@ -226,3 +226,17 @@ html.fx-vt::view-transition-new(root){animation:fxVtFade .4s var(--ease) both}
 .fx-caret.blink{animation:fxBlink .5s steps(1) infinite}
 .fx-caret.out{opacity:0;animation:none}
 @keyframes fxBlink{50%{opacity:0}}
+
+/* ---------- Stage 8: pages ---------- */
+/* Each section is a screen under the sticky header (--fx-head): the hero shows only itself (projects start below
+   the fold), projects and terms are a page each, contact + footer fill the last screen; prices keeps its length.
+   Layout only, so it's here from the first paint (no shift once the scripts run) and holds with reduced motion too;
+   fx.js adds the magnet. Short screens (landscape phones) keep the plain flow. */
+:root{--fx-head:65px}
+@media (min-height:560px){
+  section{scroll-margin-top:var(--fx-head)}
+  :is(.hero,#projects,#terms){min-height:calc(100svh - var(--fx-head));display:flex;flex-direction:column;justify-content:center}
+  #contact{min-height:calc(100svh - var(--fx-head) - var(--fx-foot,91px));display:flex;flex-direction:column;justify-content:center}
+}
+/* a section focused after a keyboard-activated link: the focus moves there for screen readers and Tab, no ring */
+section[tabindex="-1"]:focus{outline:none}

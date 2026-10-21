@@ -306,11 +306,172 @@
     upd();
   }
 
+  /* ---------- pages: each section a screen, and a magnet that settles the scroll on them ---------- */
+  // fx.css sizes the pages (hero, projects, terms: a screen under the header; contact + footer: one screen; prices
+  // keeps its length). Once a scroll comes to rest, it is eased to the next page edge in the direction it was going,
+  // or back if it only went a little: under-scrolled, it pulls you on; over-scrolled, it pulls you back. Inside a
+  // page taller than the screen it stays quiet, so long pages read freely.
+  // Hero ⇄ projects is a gated step: one gesture (wheel, swipe, key) starts a GATE_DUR glide, the card flies into
+  // the logo along with it, and the rest of that gesture (trackpad inertia too) is swallowed.
+  // Any pointer, touch or key stops a glide at once. Off with reduced motion, on short screens, while a dialog is open.
+  const PAGES_MIN_H=560;                  // px of viewport height; below it the page just scrolls (as in fx.css)
+  const INTENT=.1, INTENT_MAX=80;         // share of the screen (capped, px) a gesture must travel to go on a page
+  const SNAP_MIN=500, SNAP_MAX=900, SNAP_K=.35; // glide ms: SNAP_MIN + SNAP_K·distance, capped at SNAP_MAX
+  const GATE_DUR=1100;                    // hero ⇄ projects glide, ms
+  const WHEEL_GAP=140;                    // ms without wheel events that ends a gesture
+  const SETTLE=150;                       // without scrollend: ms of scroll silence that counts as rest
+  const headEl=document.querySelector(".top"), footEl=document.querySelector("body > footer");
+  const pageEls=[heroEl,...["projects","prices","terms","contact"].map(id=>document.getElementById(id))].filter(Boolean);
+  const projEl=document.getElementById("projects");
+  const docTop=el=>{ let y=0; for(let e=el;e;e=e.offsetParent) y+=e.offsetTop; return y; };
+  const headH=()=>headEl?headEl.offsetHeight:0;
+  const maxScroll=()=>root.scrollHeight-innerHeight;
+  const pageStart=el=>el===heroEl?0:Math.max(0,Math.min(maxScroll(),docTop(el)-headH()));
+  // the hero fits one screen, so it can be a gated step (on phones it's taller and simply scrolls)
+  const heroFits=()=>!!(heroEl && projEl) && heroEl.offsetHeight<=innerHeight-headH()+2;
+  const pagesOn=()=>!REDUCED && innerHeight>=PAGES_MIN_H;
+  const easeIO=p=>p<.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2;
+  let glideNow=null;                      // {raf, gate}
+  function stopGlide(){ if(glideNow){ cancelAnimationFrame(glideNow.raf); glideNow=null; } }
+  function glideTo(y,dur,gate){
+    stopGlide();
+    const from=scrollY, d=Math.max(0,Math.min(maxScroll(),y))-from;
+    if(Math.abs(d)<1) return;
+    dur=dur||Math.min(SNAP_MAX,SNAP_MIN+SNAP_K*Math.abs(d));
+    const g={gate,raf:0}; let t0=0, at=from;
+    const step=now=>{
+      if(glideNow!==g) return;
+      // something else scrolled the page meanwhile (a script, find in page): it wins
+      if(Math.abs(scrollY-at)>3){ glideNow=null; return; }
+      if(!t0) t0=now;
+      const p=Math.min(1,(now-t0)/dur);
+      scrollTo({top:at=from+d*easeIO(p),behavior:"instant"});
+      at=scrollY;
+      if(p<1) g.raf=requestAnimationFrame(step); else glideNow=null;
+    };
+    glideNow=g; g.raf=requestAnimationFrame(step);
+  }
+  // for the rest of this file: go somewhere the way the pages do (glide), or natively where they're off
+  const goTo=y=>{ if(pagesOn()) glideTo(y); else scrollTo({top:y,behavior:REDUCED?"auto":"smooth"}); };
+
+  if(pageEls.length>1){
+    const setFoot=()=>{ if(footEl) root.style.setProperty("--fx-foot",footEl.offsetHeight+"px"); };
+    setFoot(); addEventListener("resize",setFoot,{passive:true}); document.addEventListener("vz:lang",setFoot);
+
+    const busy=()=>!pagesOn() || !!document.querySelector("dialog[open]") || root.classList.contains("fx-vt");
+    let dir=0, lastY=scrollY, lastInput="", quietUntil=0, touching=false, dragging=false;
+    let wheelAt=0, wheelLock=false;
+    // page edges: where each page starts and, if taller than the screen, where it ends (the last one ends the document)
+    function stops(){
+      const max=maxScroll(), vh=innerHeight;
+      return pageEls.map((el,i)=>{
+        const s=pageStart(el), e=i===pageEls.length-1?max:Math.min(max,Math.max(s,docTop(el)+el.offsetHeight-vh));
+        return {s,e};
+      });
+    }
+    let settleT=0;
+    function settle(){
+      clearTimeout(settleT);
+      if(busy() || glideNow || touching || dragging || performance.now()<quietUntil) return;
+      // a wheel gesture still going (a pause between notches, or a scrollend from a glide it just stopped):
+      // wait for it to end, or the pull would fight it
+      const idle=performance.now()-wheelAt;
+      if(idle<WHEEL_GAP){ settleT=setTimeout(settle,WHEEL_GAP-idle+10); return; }
+      const y=scrollY, pages=stops();
+      if(pages.some(p=>y>p.s+1 && y<p.e-1)) return;          // inside a long page: read freely
+      const pts=[...new Set(pages.flatMap(p=>[p.s,p.e]).map(Math.round))].sort((a,b)=>a-b);
+      let a=null, b=null;
+      for(const p of pts){ if(p<=y+.5) a=p; if(p>=y-.5 && b===null) b=p; }
+      if(a===null || b===null || Math.abs(y-a)<1 || Math.abs(y-b)<1) return;
+      const th=lastInput==="key"?1:Math.min(INTENT*innerHeight,INTENT_MAX);
+      glideTo(dir>0?(y-a>=th?b:a):dir<0?(b-y>=th?a:b):(y-a<b-y?a:b));
+    }
+    addEventListener("scroll",()=>{
+      const y=scrollY;
+      if(!glideNow && Math.abs(y-lastY)>.5) dir=Math.sign(y-lastY);
+      lastY=y;
+    },{passive:true});
+    if("onscrollend" in window) addEventListener("scrollend",settle);
+    else { let t=0; addEventListener("scroll",()=>{ clearTimeout(t); t=setTimeout(settle,SETTLE); },{passive:true}); }
+
+    // hero ⇄ projects
+    const gate=y=>{ glideTo(y,GATE_DUR,true); wheelLock=true; };
+    // where a gesture going this way from here should be gated to, if anywhere
+    const gateTarget=down=>{
+      if(busy() || !heroFits()) return null;
+      const y=scrollY, ps=pageStart(projEl);
+      if(down && y<ps-1) return ps;
+      if(!down && y>.5 && y<=ps+1) return 0;
+      return null;
+    };
+    addEventListener("wheel",e=>{
+      if(e.ctrlKey || Math.abs(e.deltaX)>Math.abs(e.deltaY)) return;
+      lastInput="wheel";
+      const now=performance.now(), fresh=now-wheelAt>WHEEL_GAP; wheelAt=now;
+      if(glideNow && glideNow.gate){ e.preventDefault(); return; }
+      if(wheelLock){ if(fresh) wheelLock=false; else { e.preventDefault(); return; } }
+      stopGlide();
+      if(busy()) return;
+      const down=e.deltaY>0, to=gateTarget(down);
+      if(to!==null){ e.preventDefault(); gate(to); return; }
+      // a long flick upward doesn't fly past the projects into the hero: it stops at the projects first
+      if(!down && heroFits()){
+        const ps=pageStart(projEl), k=e.deltaMode===1?40:e.deltaMode===2?innerHeight:1;
+        if(scrollY>ps+1 && scrollY+e.deltaY*k<ps){ e.preventDefault(); gate(ps); }
+      }
+    },{passive:false});
+    const KEYS={ArrowDown:1,PageDown:1," ":1,ArrowUp:-1,PageUp:-1};
+    addEventListener("keydown",e=>{
+      lastInput="key";
+      if(e.key==="Tab") quietUntil=performance.now()+1000;   // focus moves scroll the page; leave them be
+      if(glideNow && !glideNow.gate) stopGlide();
+      const k=KEYS[e.key]; if(!k || e.altKey || e.ctrlKey || e.metaKey) return;
+      const t=e.target;
+      if(t && t.closest && t.closest("input,textarea,select,[contenteditable],dialog")) return;
+      if(e.key===" " && t && t.closest && t.closest("a,button,[role=button]")) return;
+      if(glideNow && glideNow.gate){ e.preventDefault(); return; }
+      const to=gateTarget(e.key===" "?!e.shiftKey:k>0);
+      if(to!==null){ e.preventDefault(); gate(to); }
+    });
+    let touchY=0;
+    addEventListener("touchstart",e=>{ touching=true; lastInput="touch"; touchY=e.touches[0].clientY; if(!(glideNow && glideNow.gate)) stopGlide(); },{passive:true});
+    addEventListener("touchmove",e=>{
+      if(glideNow && glideNow.gate){ if(e.cancelable) e.preventDefault(); return; }
+      const dy=touchY-e.touches[0].clientY;
+      if(Math.abs(dy)<8 || !e.cancelable) return;
+      const to=gateTarget(dy>0);
+      if(to!==null){ e.preventDefault(); gate(to); }
+    },{passive:false});
+    const untouch=()=>{ touching=false; };
+    addEventListener("touchend",untouch,{passive:true}); addEventListener("touchcancel",untouch,{passive:true});
+    // a press stops a glide; on the scrollbar it's a drag, and the page is left alone until it's let go
+    addEventListener("pointerdown",e=>{
+      if(e.pointerType!=="mouse") return;
+      lastInput="pointer"; stopGlide();
+      if(e.clientX>=root.clientWidth) dragging=true;
+    },true);
+    addEventListener("pointerup",()=>{ if(dragging){ dragging=false; settle(); } },true);
+    // layout changes move page edges under the scroll position: no pulling right after them
+    const quiet=()=>{ quietUntil=performance.now()+800; };
+    addEventListener("resize",quiet,{passive:true}); document.addEventListener("vz:lang",quiet);
+
+    // in-page links glide to their page; from the keyboard the focus follows, for Tab and screen readers
+    document.addEventListener("click",e=>{
+      const a=e.target.closest && e.target.closest('a[href^="#"]');
+      if(!a || busy()) return;
+      const el=pageEls.find(p=>p.id && a.getAttribute("href")==="#"+p.id);
+      if(!el) return;
+      e.preventDefault();
+      glideTo(pageStart(el));
+      if(e.detail===0){ el.setAttribute("tabindex","-1"); el.focus({preventScroll:true}); }
+    });
+  }
+
   /* ---------- pinned card: flies from the hero into the header logo as you scroll ---------- */
   // The card stays in the layout (no shift); only .scene gets transform/opacity. Its keyframes are sampled
   // over scroll offsets and bound to a ScrollTimeline, so the browser runs it with the scroll; where that API
   // is missing the same pose() is applied from a rAF on scroll.
-  const mark=document.querySelector(".brand-mark"), topBar=document.querySelector(".top");
+  const mark=document.querySelector(".brand-mark"), topBar=headEl;
   if(!REDUCED && sceneEl && mark && topBar){
     root.classList.add("fx-pin");
     const g={};
@@ -324,11 +485,16 @@
       const vh=innerHeight;
       g.s0=Math.max(0,g.T+g.H/2-vh*.55);
       g.s1=Math.max(g.s0+220,g.T+g.H-topBar.offsetHeight/2);
+      // with the hero as a gated page, the flight spans the whole glide to the projects
+      g.even=pagesOn() && heroFits();
+      if(g.even) g.s1=Math.max(g.s1,pageStart(projEl));
       g.max=Math.max(g.s1+1,document.documentElement.scrollHeight-vh);
     }
     const progress=s=>Math.max(0,Math.min(1,(s-g.s0)/(g.s1-g.s0)));
     function pose(s){
-      const p=progress(s), e=ease(p);
+      // gated, the glide already eases the scroll in and out, so the flight follows it evenly (easing it again
+      // would bunch the whole move into the middle of the glide)
+      const p=progress(s), e=g.even?p:ease(p);
       // viewport top goes from where the card was when the flight started to the logo; + s undoes the scroll
       const tx=(g.bx-g.L)*e, ty=s<=g.s0?0:lerp(g.T-g.s0,g.by,e)-g.T+s;
       return {p,
@@ -366,10 +532,10 @@
     sceneEl.addEventListener("click",e=>{
       if(progress(scrollY)<.5) return;
       e.stopPropagation(); e.preventDefault();
-      scrollTo({top:0,behavior:"smooth"});
+      goTo(0);
     },true);
     const brand=mark.closest("a");
-    if(brand) brand.addEventListener("click",e=>{ e.preventDefault(); scrollTo({top:0,behavior:"smooth"}); });
+    if(brand) brand.addEventListener("click",e=>{ e.preventDefault(); goTo(0); });
   }
 
   /* ---------- project card ⇄ dialog: the cover morphs into the first gallery frame and back ---------- */
