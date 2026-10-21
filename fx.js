@@ -115,6 +115,99 @@
     }
   }
 
+  /* ---------- hero intro: the card and the buttons rise in, the text types itself out ---------- */
+  // fx.css keeps the hero hidden until here (html.fx-intro-on). It plays on a fresh load at the top of the page;
+  // a #link, a back/forward visit, a restored scroll, reduced motion or a failsafe that already fired skip it.
+  // Screen readers get each text whole from the start; the typed copy is aria-hidden and becomes plain text again.
+  // Any input (pointer, key, wheel, touch, scroll) finishes it at once, so it never stands in the way.
+  const INTRO_DELAY=150;                  // ms before anything moves
+  const TYPE_H1_MS=32, TYPE_LEAD_MS=9;    // per character; the lead speeds up if needed to finish by INTRO_TOTAL_MAX
+  const TYPE_GAP=140, INTRO_TOTAL_MAX=2600; // pause between title and lead; all typing done by then (ms from start)
+  const CARET_HOLD=600;                   // the caret blinks this long after the last character, then fades
+  // the card rises and fades in, the auras fade in. No scale: script.js sizes the guilloche from the card's on-screen
+  // box, and a scaled card would make it redraw (a long task) at a lower resolution
+  const CARD_DUR=700, AURA_DUR=1000;
+  const BTN_AT=.6, BTN_DUR=450, BTN_STEP=90; // buttons start once this share of the title is typed, one after another
+  let introDone=Promise.resolve();
+  {
+    const h1=heroEl && heroEl.querySelector("h1"), lead=heroEl && heroEl.querySelector(".lead");
+    const actions=heroEl && heroEl.querySelector(".actions"), heroCard=heroEl && heroEl.querySelector(".hero-card");
+    const nav=performance.getEntriesByType && performance.getEntriesByType("navigation")[0];
+    const play=!REDUCED && h1 && lead && actions && heroCard && !location.hash && scrollY<1
+      && !(nav && nav.type==="back_forward") && getComputedStyle(h1).opacity==="0";
+    if(play) introDone=new Promise(resolve=>{
+      const split=el=>{
+        const text=el.textContent, sr=document.createElement("span"), vis=document.createElement("span");
+        sr.className="fx-sr"; sr.textContent=text;
+        vis.setAttribute("aria-hidden","true");
+        const chars=[...text].map(ch=>{ const s=document.createElement("span"); s.className="fx-ch"; s.textContent=ch; return s; });
+        vis.append(...chars);
+        el.classList.add("fx-type"); el.replaceChildren(sr,vis);
+        return {el,text,vis,chars,times:[],n:0};
+      };
+      // per-character times with a little human unevenness, longer after punctuation, scaled to the set pace
+      const pace=(t,start,per,stops)=>{
+        const raw=t.chars.map(c=>(.55+Math.random()*.9)*(stops && /[,.:;!?—]/.test(c.textContent)?3:1));
+        const k=per*raw.length/raw.reduce((a,b)=>a+b,0);
+        let x=start; t.times=raw.map(r=>{ const at=x; x+=r*k; return at; });
+        return x;
+      };
+      const title=split(h1), body=split(lead);
+      const h1End=pace(title,INTRO_DELAY,TYPE_H1_MS,true);
+      const leadStart=h1End+TYPE_GAP;
+      const leadEnd=pace(body,leadStart,Math.min(TYPE_LEAD_MS,Math.max(1,(INTRO_TOTAL_MAX-leadStart)/body.chars.length)),false);
+      const caret=document.createElement("i");
+      caret.className="fx-caret"; caret.setAttribute("aria-hidden","true");
+      h1.append(caret);
+
+      const ease="cubic-bezier(.22,.61,.36,1)";
+      const btnAt=title.times[Math.floor(title.times.length*BTN_AT)]||INTRO_DELAY;
+      const anims=[
+        heroCard.animate({opacity:[0,1],translate:["0 16px","0 0"]},{duration:CARD_DUR,delay:INTRO_DELAY,easing:"cubic-bezier(.33,1,.68,1)",fill:"backwards"}),
+        aura.animate({opacity:[0,1]},{duration:AURA_DUR,easing:"linear",fill:"backwards"}),
+        ...[...actions.children].map((b,i)=>b.animate({opacity:[0,1],translate:["0 12px","0 0"]},{duration:BTN_DUR,delay:btnAt+i*BTN_STEP,easing:ease,fill:"backwards"}))
+      ];
+      root.classList.add("fx-intro-on");
+
+      let t0=0, raf=0, over=false, endAt=0;
+      const place=(t,s)=>{
+        if(caret.parentNode!==t.el) t.el.append(caret);
+        const x=s?s.offsetLeft+s.offsetWidth:(t.chars[0]?t.chars[0].offsetLeft:0), ref=s||t.chars[0];
+        if(ref){ caret.style.height=ref.offsetHeight*.8+"px"; caret.style.transform=`translate(${x.toFixed(1)}px,${(ref.offsetTop+ref.offsetHeight*.1).toFixed(1)}px)`; }
+      };
+      const type=(t,now)=>{ while(t.n<t.chars.length && t.times[t.n]<=now) t.chars[t.n++].classList.add("on"); };
+      const tick=now=>{
+        if(over) return;
+        if(!t0) t0=now;
+        const t=now-t0;
+        type(title,t); type(body,t);
+        if(t<leadStart) place(title,title.chars[title.n-1]);
+        else if(body.n<body.chars.length) place(body,body.chars[body.n-1]);
+        else if(!endAt){ place(body,body.chars[body.n-1]); caret.classList.add("blink"); endAt=t; }
+        if(endAt && t-endAt>=CARET_HOLD){ caret.classList.add("out"); setTimeout(finish,220); return; }
+        raf=requestAnimationFrame(tick);
+      };
+      // back to plain text (unless a language switch has already replaced it), every animation at its end
+      function finish(){
+        if(over) return; over=true;
+        cancelAnimationFrame(raf);
+        removeEventListener("scroll",onScroll);
+        for(const ev of ["pointerdown","keydown","wheel","touchstart"]) removeEventListener(ev,finish,true);
+        caret.remove();
+        for(const t of [title,body]) if(t.vis.isConnected){ t.el.textContent=t.text; t.el.classList.remove("fx-type"); }
+        anims.forEach(a=>a.finish());
+        resolve();
+      }
+      const onScroll=()=>{ if(scrollY>1) finish(); };
+      for(const ev of ["pointerdown","keydown","wheel","touchstart"]) addEventListener(ev,finish,{capture:true,passive:true});
+      addEventListener("scroll",onScroll,{passive:true});
+      document.addEventListener("vz:lang",finish);
+      place(title,null);
+      raf=requestAnimationFrame(tick);
+    });
+    else root.classList.add("fx-intro-on");
+  }
+
   /* ---------- scroll reveal ---------- */
   // Content is hidden only once html.fx-rv is set here, so without JS (or with reduced motion) it's all just visible.
   // A block waits (.fx-wait) until it scrolls in, plays once (.fx-in), then settles (no class), so pieces that
@@ -310,7 +403,8 @@
   })();
   if(want3d){
     const go=()=>import("./card3d.js").then(m=>m.mount(sceneEl)).catch(()=>{}); // on failure the CSS card just stays
-    const idle=()=>"requestIdleCallback" in window?requestIdleCallback(go,{timeout:2500}):setTimeout(go,300);
+    // after the hero intro, so its heavy first tasks don't stutter the typing
+    const idle=()=>introDone.then(()=>"requestIdleCallback" in window?requestIdleCallback(go,{timeout:2500}):setTimeout(go,300));
     if(document.readyState==="complete") idle(); else addEventListener("load",idle,{once:true});
   }
 

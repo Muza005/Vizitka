@@ -203,3 +203,22 @@ html.fx-vt::view-transition-new(root){animation:fxVtFade .4s var(--ease) both}
 .scene.fx-3d .fx-3d-canvas{opacity:1}
 .fx-base .face{transition:opacity .6s var(--ease)}
 .scene.fx-3d .face{opacity:0}
+
+/* ---------- Stage 7: hero intro (fx.js) ---------- */
+/* The hero's text, buttons and card are hidden from the very first paint, before any script runs: the scripts may
+   arrive after that paint, and the finished hero must not flash and then retype itself. fx.js takes over at once
+   (html.fx-intro-on); if it never runs, the failsafe shows everything after 3 s. Reduced motion: no intro at all. */
+@media (prefers-reduced-motion: no-preference){
+  html:not(.fx-intro-on) .hero :is(h1,.lead,.actions,.hero-card){opacity:0;animation:fxIntroSafe .4s 3s forwards}
+}
+@keyframes fxIntroSafe{to{opacity:1}}
+/* typing: every character is in place from the start (no layout change), each one just turns visible */
+.fx-type{position:relative}
+.fx-ch{opacity:0;transition:opacity 40ms linear}
+.fx-ch.on{opacity:1}
+.lead .fx-ch{transition:none} /* the lead types too fast for a fade: it would trail behind the caret */
+.fx-caret{position:absolute;left:0;top:0;width:max(2px,.07em);border-radius:2px;background:var(--lapis);pointer-events:none;
+  transition:opacity .2s linear}
+.fx-caret.blink{animation:fxBlink .5s steps(1) infinite}
+.fx-caret.out{opacity:0;animation:none}
+@keyframes fxBlink{50%{opacity:0}}
