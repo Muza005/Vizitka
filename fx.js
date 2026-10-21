@@ -724,11 +724,18 @@
   const SMOOTH_W=8;
   const EDGE_REST=320;                    // ms the wheel rests after braking into a page edge, before it moves on
   const EDGE_NEAR=.2;                     // a page taller than the screen by less than this share is one stop, not two
-  const SWIPE_STEP=24;                    // touch: px a vertical swipe travels before it pages
-  const SWIPE_SCREEN=.88;                 // touch: inside a long page, a swipe goes on by about this share of a screen
-  const SWIPE_HOP=.2;                     // touch: a stop nearer than this share of a screen is passed over
-  const SWIPE_GAP=14;                     // touch: px of room left above a block a swipe lands on
-  const SWIPE_MIN=520, SWIPE_MAX=900, SWIPE_K=.4; // touch: glide ms, SWIPE_MIN + SWIPE_K·distance, capped
+  // Touch: the finger scrolls a page itself, with the page's own momentum (below), and never past its edges
+  const TOUCH_DECEL=.998;                 // momentum keeps this share of its speed each ms (as on iOS)
+  const TOUCH_SAMPLE=100;                 // ms of finger movement the release speed is taken from
+  const TOUCH_HOLD=60;                    // ms: a finger held still this long before lifting lets go without momentum
+  const TOUCH_VMAX=8, TOUCH_VSTOP=.015;   // px/ms: release speed cap; momentum slower than this has stopped
+  const BRAKE_MAX=.02;                    // px/ms²: hardest braking into a page edge (faster than that runs on a bit)
+  const BOUNCE_MAX=28;                    // px momentum may run past a page edge before it's pulled back
+  const BACK_W=.014;                      // rad/ms: the spring that pulls the page back onto its edge
+  const RUBBER=.55, RUBBER_MAX=90;        // pulling past an edge: the page follows this share of it, never past MAX px
+  const EDGE_PULL=30;                     // px past an edge the finger pulls (from rest there) to go on to the next page
+  const EDGE_CATCH=40;                    // px: a touch while momentum is this close to its edge counts as resting there
+  const SWIPE_MIN=520, SWIPE_MAX=900, SWIPE_K=.4; // touch: glide to the next page, ms, SWIPE_MIN + SWIPE_K·distance, capped
   const SMOOTH_ACC=9000;                  // px/s²: speeding up is capped at this (a far target pulls smoothly, not
                                           // with a kick); slowing down isn't, so it never overshoots
   const headEl=document.querySelector(".top"), footEl=document.querySelector("body > footer");
@@ -746,8 +753,10 @@
   function stopGlide(){ if(glideNow){ cancelAnimationFrame(glideNow.raf); glideNow=null; } }
   let smoothNow=null;                     // the smooth wheel (below): {y, v, target, at, t, raf}
   function stopSmooth(){ if(smoothNow){ cancelAnimationFrame(smoothNow.raf); smoothNow=null; } }
+  let flingNow=null;                      // touch momentum (below): {y, v, lo, hi, at, t, raf}
+  function stopFling(){ if(flingNow){ cancelAnimationFrame(flingNow.raf); flingNow=null; } }
   function glideTo(y,dur,gate){
-    stopGlide(); stopSmooth();
+    stopGlide(); stopSmooth(); stopFling();
     const from=scrollY, d=Math.max(0,Math.min(maxScroll(),y))-from;
     if(Math.abs(d)<1) return;
     dur=dur||Math.min(SNAP_MAX,SNAP_MIN+SNAP_K*Math.abs(d));
@@ -785,7 +794,7 @@
     let settleT=0;
     function settle(){
       clearTimeout(settleT);
-      if(busy() || glideNow || smoothNow || touching || dragging || performance.now()<quietUntil) return;
+      if(busy() || glideNow || smoothNow || flingNow || touching || dragging || performance.now()<quietUntil) return;
       // a wheel gesture still going (a pause between notches, or a scrollend from a glide it just stopped):
       // wait for it to end, or the pull would fight it
       const idle=performance.now()-wheelAt;
@@ -797,6 +806,17 @@
     // a page's stops for a move this way: its start and end, or one of them if it's only a little taller than the
     // screen (going down its end, so it's seen whole; going up its start)
     const edgesOf=(p,d)=>p.e>p.s && p.e-p.s<EDGE_NEAR*innerHeight && d?[d>0?p.e:p.s]:[p.s,p.e];
+    // where a move this way from y goes on to the next page: its top going down, its bottom going up (so the
+    // page reads on from where you come in); null past the first or last page
+    function nextStop(d,y){
+      let to=null;
+      for(const p of stops()){
+        if(d>0?p.s<=y+1:p.e>=y-1) continue;
+        const v=d>0?edgesOf(p,1)[0]:edgesOf(p,-1).at(-1);
+        if(to===null || (d>0?v<to:v>to)) to=v;
+      }
+      return to;
+    }
     function snapFor(y){
       const pages=stops();
       if(pages.some(p=>y>p.s+1 && y<p.e-1)) return null; // inside a long page: read freely
@@ -891,9 +911,10 @@
       if(Math.abs(scrollY-ps)>=.5) scrollTo({top:ps,behavior:"instant"});
       if(car.step(d)!=="edge") return;
       carFree=performance.now()+CAR_RELEASE;
-      const pages=stops(), i=pageEls.indexOf(projEl), to=d>0?pages[i+1]:pages[i-1];
-      if(!to) return;
-      if(d<0 && heroFits()) gate(0); else gateTo(d>0?to.s:to.e);
+      const to=nextStop(d,ps);
+      if(to===null) return;
+      // back up to the hero, the card flies out of the logo over the whole glide
+      if(d<0) gate(to); else gateTo(to);
     }
     if(car) car.land=()=>{ if(!pinned() && !busy()) glideTo(pageStart(projEl)); };
     // a flight across the projects (the wheel's, or a native one: touch momentum, keys) stops on them; not a scroll the
@@ -903,7 +924,7 @@
     addEventListener("scroll",()=>{
       if(!car || !car.on) return;
       const y=scrollY, ps=pageStart(projEl), now=performance.now();
-      const free=!busy() && !glideNow && !smoothNow && !touching && !dragging;
+      const free=!busy() && !glideNow && !smoothNow && !flingNow && !touching && !dragging;
       if(free && (lastInput==="touch" || lastInput==="key") && now>carFree && now>quietUntil
         && Math.abs(y-carY)<3*innerHeight && (crosses(carY,y,ps) || (now<carHold && Math.abs(y-ps)>1))){
         // a touch fling goes on after a programmatic scroll: taking the overflow away for a moment ends it, and
@@ -971,38 +992,95 @@
       const to=gateTarget(d>0);
       if(to!==null){ e.preventDefault(); gate(to); }
     });
-    // Touch pages the site: the finger never drags the page or holds it halfway. A swipe either way (from SWIPE_STEP px
-    // on) sets off a glide to the next stop that way, and the glide always plays out (touches meanwhile are ignored).
-    // Stops are the page edges (a page only a little taller than the screen is one stop, as for the wheel). Inside a
-    // page much taller than the screen (the prices on a phone) a swipe goes on by up to SWIPE_SCREEN of a screen, to the
-    // top of a block (a price, a box, a step), not through one. On the carousel a swipe moves one project instead
-    // (above); the projects are a stop like any other (from above they show the first project, from below the last).
-    // Pinch zoom is left alone.
-    const BLOCK_SEL=".sec-head,.price-group > h3,.prow,.tbox,.pay,.steps-title,.steps > li,.contact > div,.clist > li";
-    function swipePage(d){
-      const y=scrollY, vh=innerHeight-headH(), hop=SWIPE_HOP*vh, room=SWIPE_SCREEN*vh, pages=stops();
-      const edges=[...new Set(pages.flatMap(p=>edgesOf(p,d)).map(Math.round))].sort((a,b)=>a-b);
-      let to=d>0?edges.find(v=>v>y+hop):[...edges].reverse().find(v=>v<y-hop);
-      // in a long page with its end more than a screen away: a screen's step, onto a block's top
-      const i=pages.findIndex(p=>p.e-p.s>=EDGE_NEAR*innerHeight && (d>0?y>=p.s-2 && y<p.e-2:y>p.s+2 && y<=p.e+2));
-      if(i>=0 && (to===undefined || Math.abs(to-y)>room)){
-        const p=pages[i], ideal=y+d*room;
-        const tops=[...pageEls[i].querySelectorAll(BLOCK_SEL)].map(el=>docTop(el)-headH()-SWIPE_GAP).filter(v=>v>p.s && v<p.e);
-        const fit=d>0?tops.filter(v=>v>y+hop && v<=ideal):tops.filter(v=>v<y-hop && v>=ideal);
-        to=fit.length?(d>0?Math.max(...fit):Math.min(...fit)):Math.max(p.s,Math.min(p.e,ideal));
-        const edge=d>0?p.e:p.s;                       // no sliver left before the page's own edge
-        if(Math.abs(edge-to)<hop) to=edge;
+    // Touch reads the site page by page. Inside a page the finger scrolls it as usual: the page follows the finger,
+    // runs on after a flick and slows down (TOUCH_DECEL), and a touch stops it. Its edges are stops: momentum that
+    // would run past one brakes into it instead (from any speed, at most BRAKE_MAX hard, running on by up to
+    // BOUNCE_MAX and pulled back), and the finger pulling past one only stretches the page a little (RUBBER) and lets
+    // it spring back. From rest on an edge, a swipe on past it (EDGE_PULL) sets off a glide to the next page: going
+    // down to its top, going up to its bottom; the glide always plays out (touches meanwhile are ignored). A page only
+    // a little taller than the screen is a single stop: any swipe off it goes on. Hero ⇄ projects glides for GATE_DUR,
+    // the card flying into the logo and back with it. On the carousel a swipe moves one project instead (above).
+    // Pinch zoom, a zoomed-in page and boxes that scroll themselves are left to the browser.
+    const TOUCH_TAU=-1/Math.log(TOUCH_DECEL); // ms: momentum at v px/ms runs on v·TOUCH_TAU px before it stops
+    const rubber=o=>RUBBER_MAX*(1-1/(o*RUBBER/RUBBER_MAX+1));
+    // the stretch of scroll a gesture from y moves in: its page, between its edges (a single-stop page: just y),
+    // or the gap between two pages
+    function zoneAt(y){
+      const pages=stops(); let lo=0, hi=maxScroll();
+      for(let i=0;i<pages.length;i++){
+        const p=pages[i];
+        if(y>=p.s-1.5 && y<=p.e+1.5) return p.e-p.s<EDGE_NEAR*innerHeight?{lo:y,hi:y,i}:{lo:p.s,hi:p.e,i};
+        if(p.e<y) lo=p.e; else { hi=p.s; break; }
       }
-      if(to===undefined){ const last=d>0?edges[edges.length-1]:edges[0]; if(Math.abs(last-y)>2) to=last; else return; }
-      gateTo(to,Math.min(SWIPE_MAX,SWIPE_MIN+SWIPE_K*Math.abs(to-y)));
+      return {lo,hi,i:-1};
     }
-    let carTouch=null, swipe=null;
+    function fling(y,v,lo,hi){
+      stopFling();
+      if(Math.abs(v)<TOUCH_VSTOP && y>=lo-.5 && y<=hi+.5) return;
+      const f={y,v,lo,hi,at:scrollY,t:0,raf:0};
+      const end=()=>{ scrollTo({top:f.y,behavior:"instant"}); flingNow=null; settle(); };
+      const step=now=>{
+        if(flingNow!==f) return;
+        if(Math.abs(scrollY-f.at)>3){ flingNow=null; return; }   // something else scrolled the page: it wins
+        const dt=Math.min(32,f.t?now-f.t:16); f.t=now;
+        const out=f.y>f.hi?f.hi:f.y<f.lo?f.lo:null;
+        if(out!==null){
+          // past the edge: a critically damped spring pulls it back
+          f.v+=(-BACK_W*BACK_W*(f.y-out)-2*BACK_W*f.v)*dt; f.y+=f.v*dt;
+          if(Math.abs(f.y-out)>BOUNCE_MAX){ f.y=out+Math.sign(f.y-out)*BOUNCE_MAX; if(Math.sign(f.v)===Math.sign(f.y-out)) f.v=0; }
+          if(Math.abs(f.y-out)<.5 && Math.abs(f.v)<.02){ f.y=out; return end(); }
+        } else {
+          const E=f.v>0?f.hi:f.lo, D=Math.abs(E-f.y);
+          if(D>.5 && Math.abs(f.v)*TOUCH_TAU>=D){
+            // it would run past the edge: brake evenly to stop on it
+            const a=Math.min(BRAKE_MAX,f.v*f.v/(2*D)), v0=f.v;
+            f.v=Math.sign(v0)*Math.max(0,Math.abs(v0)-a*dt); f.y+=(v0+f.v)/2*dt;
+            if(a<BRAKE_MAX && (f.v===0 || (v0>0?f.y>=E:f.y<=E))){ f.y=E; return end(); }
+          } else {
+            f.v*=Math.pow(TOUCH_DECEL,dt); f.y+=f.v*dt;
+            if(Math.abs(f.v)<TOUCH_VSTOP){ if(D<=.5) f.y=E; return end(); }
+          }
+        }
+        scrollTo({top:f.y,behavior:"instant"}); f.at=scrollY;
+        f.raf=requestAnimationFrame(step);
+      };
+      flingNow=f; f.raf=requestAnimationFrame(step);
+    }
+    let carTouch=null, drag=null;
     addEventListener("touchstart",e=>{
       touching=true; lastInput="touch"; stopSmooth(); if(!(glideNow && glideNow.gate)) stopGlide();
+      // a touch as momentum comes in to an edge (or springs back onto it) lands it there: a quick second swipe goes on
+      if(flingNow){
+        const f=flingNow, out=f.y>f.hi?f.hi:f.y<f.lo?f.lo:null, E=f.v>0?f.hi:f.lo;
+        const to=out!==null?out:Math.abs(E-f.y)<EDGE_CATCH && Math.abs(f.v)*TOUCH_TAU>=Math.abs(E-f.y)?E:null;
+        stopFling();
+        if(to!==null) scrollTo({top:to,behavior:"instant"});
+      }
       const one=e.touches.length===1, t=e.touches[0];
       carTouch=one && pinned()?{x:t.clientX,y:t.clientY,done:false}:null;
-      swipe=one && !carTouch && !busy()?{x:t.clientX,y:t.clientY,done:false}:null;
+      drag=null;
+      if(!one || carTouch || busy() || (glideNow && glideNow.gate) || scrollsInside(e.target)) return;
+      if(window.visualViewport && visualViewport.scale>1.01) return;
+      const y=scrollY, z=zoneAt(y);
+      drag={y:t.clientY,y0:Math.max(z.lo,Math.min(z.hi,y)),lo:z.lo,hi:z.hi,i:z.i,
+        atLo:Math.abs(y-z.lo)<=1.5,atHi:Math.abs(y-z.hi)<=1.5,s:[{t:performance.now(),f:0}],done:false};
     },{passive:true});
+    function dragBy(f){
+      const g=drag, raw=g.y0+f;
+      let y=raw;
+      if(raw>g.hi || raw<g.lo){
+        const d=raw>g.hi?1:-1, E=d>0?g.hi:g.lo, o=Math.abs(raw-E);
+        const to=(d>0?g.atHi:g.atLo) && o>=EDGE_PULL?nextStop(d,E):null;
+        if(to!==null){
+          g.done=true;
+          const hp=(g.i===0 && d>0) || (pageEls[g.i]===projEl && d<0);
+          gateTo(to,hp?GATE_DUR:Math.min(SWIPE_MAX,SWIPE_MIN+SWIPE_K*Math.abs(to-scrollY)));
+          return;
+        }
+        y=E+d*rubber(o);
+      }
+      scrollTo({top:y,behavior:"instant"});
+    }
     addEventListener("touchmove",e=>{
       if(glideNow && glideNow.gate){ if(e.cancelable) e.preventDefault(); return; }
       // on the carousel the page stays; a swipe (either way) of CAR_TOUCH moves one project, once per touch
@@ -1014,14 +1092,26 @@
         if(Math.abs(d)>=CAR_TOUCH){ carTouch.done=true; carGesture(Math.sign(d)); }
         return;
       }
-      if(!swipe) return;
-      if(e.touches.length!==1 || busy()){ swipe=null; return; }
+      if(!drag) return;
+      if(e.touches.length!==1 || busy()){ const g=drag; drag=null; fling(scrollY,0,g.lo,g.hi); return; }
       if(e.cancelable) e.preventDefault();
-      if(swipe.done) return;
-      const dx=swipe.x-e.touches[0].clientX, dy=swipe.y-e.touches[0].clientY;
-      if(Math.abs(dy)>=SWIPE_STEP && Math.abs(dy)>=Math.abs(dx)){ swipe.done=true; swipePage(Math.sign(dy)); }
+      if(drag.done) return;
+      const f=drag.y-e.touches[0].clientY, now=performance.now();
+      drag.s.push({t:now,f}); while(drag.s.length>2 && now-drag.s[0].t>TOUCH_SAMPLE) drag.s.shift();
+      dragBy(f);
     },{passive:false});
-    const untouch=()=>{ touching=false; };
+    // let go: momentum from the finger's last TOUCH_SAMPLE ms (none if it was held still), or back onto the edge
+    function release(){
+      const g=drag; drag=null;
+      if(!g || g.done || busy()) return;
+      const now=performance.now(), s=g.s, a=s[0], b=s[s.length-1];
+      let v=s.length>1 && now-b.t<TOUCH_HOLD && b.t>a.t?(b.f-a.f)/(b.t-a.t):0;
+      v=Math.max(-TOUCH_VMAX,Math.min(TOUCH_VMAX,v));
+      // stretched past an edge, the page moves only by part of the finger's way
+      if(scrollY>g.hi+.5 || scrollY<g.lo-.5) v*=RUBBER*.5;
+      fling(scrollY,v,g.lo,g.hi);
+    }
+    const untouch=()=>{ touching=false; release(); };
     addEventListener("touchend",untouch,{passive:true}); addEventListener("touchcancel",untouch,{passive:true});
     // a press stops a glide; on the scrollbar it's a drag, and the page is left alone until it's let go
     addEventListener("pointerdown",e=>{
@@ -1068,6 +1158,13 @@
       // with the hero as a gated page, the flight spans the whole glide to the projects
       g.even=pagesOn() && heroFits();
       if(g.even) g.s1=Math.max(g.s1,pageStart(projEl));
+      else if(pagesOn() && projEl && heroEl){
+        // a hero taller than the screen (phones) is read to its end first: the flight spans the move from there (a
+        // stop) to the projects, so it plays over the whole glide (from the top if the hero is a single stop)
+        const end=docTop(heroEl)+heroEl.offsetHeight-vh, ps=pageStart(projEl);
+        const s0=end<EDGE_NEAR*vh?0:end;
+        if(ps>s0+1){ g.s0=s0; g.s1=ps; g.even=true; }
+      }
       g.max=Math.max(g.s1+1,document.documentElement.scrollHeight-vh);
     }
     const progress=s=>Math.max(0,Math.min(1,(s-g.s0)/(g.s1-g.s0)));
