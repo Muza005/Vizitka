@@ -306,6 +306,118 @@
     upd();
   }
 
+  /* ---------- projects lane: scrolling down moves the projects sideways ---------- */
+  // On screens tall enough for the pages, #projects becomes a pinned stage (fx.css, html.fx-lane): its content sticks
+  // under the header and the strip slides left as the page scrolls, LANE_K px of scroll per px of slide, so the
+  // prices come only after the last project. The slide is a CSS scroll-driven animation (fx.css), run by the browser
+  // with the scroll; where that's missing it is set here from the scroll. The pages magnet stops at each card.
+  // Arrows, Tab and a sideways swipe move the page to the matching place. Plain strip without JS, on short screens,
+  // or when every card already fits.
+  const LANE_K=1.4;                       // px of vertical scroll per px the strip moves
+  const LANE_MIN_STEP=.3;                 // a card stop this close to the end (share of a card step) merges into it
+  const LANE_MIN_H=560;                   // as PAGES_MIN_H below
+  const lane=(()=>{
+    const sec=document.getElementById("projects"), strip=document.getElementById("strip");
+    if(!sec || !strip || !headElEarly()) return null;
+    const box=document.createElement("div");
+    box.className="fx-lane-box";
+    strip.before(box); box.append(strip);
+    const scrollTimeline=!!(window.CSS && CSS.supports("animation-timeline: view()"));
+    const st={on:false,travel:0,start:0,cards:[]};
+    const cardsX=()=>{ const kids=[...strip.children], x0=kids.length?kids[0].offsetLeft:0; return kids.map(k=>k.offsetLeft-x0); };
+    function layout(){
+      const want=innerHeight>=LANE_MIN_H;
+      root.classList.toggle("fx-lane",want);
+      st.travel=want?Math.max(0,strip.offsetWidth-box.clientWidth):0;
+      if(want && st.travel<1){ root.classList.remove("fx-lane"); }
+      st.on=root.classList.contains("fx-lane");
+      root.style.setProperty("--fx-travel",st.travel.toFixed(1)+"px");
+      root.style.setProperty("--fx-run",(st.travel*LANE_K).toFixed(1)+"px");
+      if(!st.on){ strip.style.translate=""; box.classList.remove("fade-l","fade-r"); }
+      sync();
+    }
+    // where the lane is, from the scroll: 0…travel
+    const x=()=>Math.max(0,Math.min(st.travel,(scrollY-st.start)/LANE_K));
+    function sync(){
+      if(!st.on) return;
+      let y=0; for(let e=sec;e;e=e.offsetParent) y+=e.offsetTop;
+      st.start=Math.max(0,y-headElEarly().offsetHeight);
+      const v=x();
+      if(!scrollTimeline) strip.style.translate=`${(-v).toFixed(1)}px 0`;
+      box.classList.toggle("fade-l",v>2); box.classList.toggle("fade-r",v<st.travel-2);
+      arrows();
+    }
+    // where a card stops: its left edge just past the lane's left fade (fx.css: clamp(40px,8vw,96px)), so the
+    // card reads whole and the one before peeks out of the fade; the last stop is where the strip ends
+    const fadeW=()=>Math.min(96,Math.max(40,innerWidth*.08));
+    const stopOf=v=>v>0?Math.min(st.travel,Math.max(0,v-fadeW())):0;
+    function stops(){
+      if(!st.on) return null;
+      const xs=cardsX(), step=xs[1]||st.travel, out=[0];
+      for(const v of xs.map(stopOf)) if(v>0 && v<st.travel-step*LANE_MIN_STEP) out.push(v);
+      out.push(st.travel);
+      return out;
+    }
+    const yOf=v=>st.start+v*LANE_K;
+    const prevBtn=document.getElementById("stripPrev"), nextBtn=document.getElementById("stripNext");
+    function arrows(){
+      if(!st.on) return;
+      const v=x();
+      if(prevBtn) prevBtn.disabled=v<=1;
+      if(nextBtn) nextBtn.disabled=v>=st.travel-1;
+    }
+    // script.js sets the arrows from the strip's own scroll (nothing here): set them again right after it
+    const arrowsLater=()=>requestAnimationFrame(()=>requestAnimationFrame(arrows));
+    // the arrows step the page to the next / previous card stop (script.js's handlers are skipped meanwhile)
+    document.addEventListener("click",e=>{
+      const b=e.target.closest && e.target.closest("#stripPrev,#stripNext");
+      if(!b || !st.on) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      const v=x(), list=stops(), fwd=b.id==="stripNext";
+      const to=fwd?list.find(s=>s>v+2):[...list].reverse().find(s=>s<v-2);
+      if(to!==undefined) goTo(yOf(to));
+    },true);
+    // a card reached by Tab that isn't fully in view: bring it to its place (after the browser's own scroll
+    // to the focused element, which would otherwise stop the glide)
+    strip.addEventListener("focusin",e=>{
+      if(!st.on) return;
+      const card=e.target.closest && e.target.closest("#strip > *"); if(!card) return;
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        if(!st.on || !card.contains(document.activeElement)) return;
+        const r=card.getBoundingClientRect(), b=box.getBoundingClientRect();
+        if(r.left>=b.left-1 && r.right<=b.right+1 && Math.abs(scrollY-yOf(x()))<2 && scrollY>=st.start-1) return;
+        const xs=cardsX(), i=[...strip.children].indexOf(card);
+        goTo(yOf(stopOf(xs[i]||0)));
+      }));
+    });
+    // a sideways swipe over the lane scrolls the page as if it were vertical
+    let tx=0, ty=0, ty0=0, side=null;
+    box.addEventListener("touchstart",e=>{ tx=e.touches[0].clientX; ty=e.touches[0].clientY; ty0=scrollY; side=null; },{passive:true});
+    box.addEventListener("touchmove",e=>{
+      if(!st.on) return;
+      const dx=e.touches[0].clientX-tx, dy=e.touches[0].clientY-ty;
+      if(side===null && Math.abs(dx)+Math.abs(dy)>8) side=Math.abs(dx)>Math.abs(dy)*1.2;
+      if(!side || !e.cancelable) return;
+      e.preventDefault();
+      // within the lane: a sideways swipe never carries the page out of it
+      scrollTo({top:Math.max(st.start,Math.min(yOf(st.travel),ty0-dx*LANE_K)),behavior:"instant"});
+    },{passive:false});
+    box.addEventListener("touchend",()=>{ if(side) requestAnimationFrame(()=>settleNow()); side=null; },{passive:true});
+
+    addEventListener("scroll",sync,{passive:true});
+    let lt=0; const relayout=()=>{ clearTimeout(lt); lt=setTimeout(()=>{ layout(); arrowsLater(); },100); };
+    addEventListener("resize",relayout,{passive:true});
+    document.addEventListener("vz:lang",()=>{ layout(); arrowsLater(); });
+    if(document.fonts && document.fonts.ready) document.fonts.ready.then(()=>{ layout(); arrowsLater(); });
+    if("ResizeObserver" in window) new ResizeObserver(relayout).observe(box);
+    layout(); arrowsLater();
+    return {stops,yOf,get on(){ return st.on; },
+      // the strip is moving with the scroll right now (pointer effects re-measure the cards then)
+      moving:()=>st.on && scrollY>st.start-2 && scrollY<yOf(st.travel)+2};
+  })();
+  function headElEarly(){ return document.querySelector(".top"); }
+  let settleNow=()=>{};
+
   /* ---------- pages: each section a screen, and a magnet that settles the scroll on them ---------- */
   // fx.css sizes the pages (hero, projects, terms: a screen under the header; contact + footer: one screen; prices
   // keeps its length). Once a scroll comes to rest, it is eased to the next page edge in the direction it was going,
@@ -320,6 +432,7 @@
   const GATE_DUR=1100;                    // hero ⇄ projects glide, ms
   const WHEEL_GAP=140;                    // ms without wheel events that ends a gesture
   const SETTLE=150;                       // without scrollend: ms of scroll silence that counts as rest
+  const SETTLE_SAFE=400;                  // with it: the same after this long, in case a scrollend never comes
   const headEl=document.querySelector(".top"), footEl=document.querySelector("body > footer");
   const pageEls=[heroEl,...["projects","prices","terms","contact"].map(id=>document.getElementById(id))].filter(Boolean);
   const projEl=document.getElementById("projects");
@@ -363,10 +476,11 @@
     let wheelAt=0, wheelLock=false;
     // page edges: where each page starts and, if taller than the screen, where it ends (the last one ends the document)
     function stops(){
-      const max=maxScroll(), vh=innerHeight;
+      const max=maxScroll(), vh=innerHeight, ls=lane && lane.stops();
       return pageEls.map((el,i)=>{
         const s=pageStart(el), e=i===pageEls.length-1?max:Math.min(max,Math.max(s,docTop(el)+el.offsetHeight-vh));
-        return {s,e};
+        // the projects lane is long but not free: it stops at every card
+        return el===projEl && ls?{s,e,pts:ls.map(lane.yOf)}:{s,e};
       });
     }
     let settleT=0;
@@ -378,8 +492,8 @@
       const idle=performance.now()-wheelAt;
       if(idle<WHEEL_GAP){ settleT=setTimeout(settle,WHEEL_GAP-idle+10); return; }
       const y=scrollY, pages=stops();
-      if(pages.some(p=>y>p.s+1 && y<p.e-1)) return;          // inside a long page: read freely
-      const pts=[...new Set(pages.flatMap(p=>[p.s,p.e]).map(Math.round))].sort((a,b)=>a-b);
+      if(pages.some(p=>!p.pts && y>p.s+1 && y<p.e-1)) return; // inside a long page: read freely
+      const pts=[...new Set(pages.flatMap(p=>[p.s,p.e,...(p.pts||[])]).map(Math.round))].sort((a,b)=>a-b);
       let a=null, b=null;
       for(const p of pts){ if(p<=y+.5) a=p; if(p>=y-.5 && b===null) b=p; }
       if(a===null || b===null || Math.abs(y-a)<1 || Math.abs(y-b)<1) return;
@@ -391,8 +505,10 @@
       if(!glideNow && Math.abs(y-lastY)>.5) dir=Math.sign(y-lastY);
       lastY=y;
     },{passive:true});
-    if("onscrollend" in window) addEventListener("scrollend",settle);
-    else { let t=0; addEventListener("scroll",()=>{ clearTimeout(t); t=setTimeout(settle,SETTLE); },{passive:true}); }
+    settleNow=settle;
+    const hasEnd="onscrollend" in window;
+    if(hasEnd) addEventListener("scrollend",settle);
+    { let t=0; addEventListener("scroll",()=>{ clearTimeout(t); t=setTimeout(settle,hasEnd?SETTLE_SAFE:SETTLE); },{passive:true}); }
 
     // hero ⇄ projects
     const gate=y=>{ glideTo(y,GATE_DUR,true); wheelLock=true; };
@@ -657,7 +773,12 @@
   new MutationObserver(markDirty).observe(document.body,{childList:true,subtree:true});
   const strip=document.getElementById("strip");
   if(strip) strip.addEventListener("scroll",()=>{ if(seen){ measure(); moved=true; wake(); } else markDirty(); },{passive:true});
-  addEventListener("scroll",()=>{ sX=scrollX; sY=scrollY; moved=true; wake(); },{passive:true});
+  addEventListener("scroll",()=>{
+    sX=scrollX; sY=scrollY; moved=true;
+    // the projects lane moves its cards with the page scroll, so their cached boxes go stale
+    if(lane && lane.moving()){ if(seen) measure(); else markDirty(); }
+    wake();
+  },{passive:true});
 
   const wake=()=>{ if(!raf) raf=requestAnimationFrame(frame); };
 

@@ -240,3 +240,26 @@ html.fx-vt::view-transition-new(root){animation:fxVtFade .4s var(--ease) both}
 }
 /* a section focused after a keyboard-activated link: the focus moves there for screen readers and Tab, no ring */
 section[tabindex="-1"]:focus{outline:none}
+
+/* ---------- Stage 9: projects lane ---------- */
+/* html.fx-lane (fx.js, on screens tall enough for the pages): #projects grows by --fx-run and its content sticks
+   under the header, while the vertical scroll moves the strip sideways by --fx-travel (both set by fx.js). The
+   strip is as wide as its cards inside .fx-lane-box, which clips it and fades its edges: no scrollbar, and
+   script.js finds nothing to scroll sideways, so its wheel handler stands aside. */
+.fx-lane #projects{height:calc(100svh - var(--fx-head) + var(--fx-run,0px));min-height:0;padding-block:0;display:block;
+  view-timeline:--fx-proj block;view-timeline-inset:var(--fx-head) 0}
+.fx-lane #projects > .wrap{position:sticky;top:var(--fx-head);height:calc(100svh - var(--fx-head));
+  display:flex;flex-direction:column;justify-content:center}
+.fx-lane .fx-lane-box{container-type:inline-size;overflow-x:clip;touch-action:pan-y;
+  --fl:0px;--fr:0px;transition:--fl .45s var(--ease),--fr .45s var(--ease);
+  -webkit-mask-image:linear-gradient(to right,transparent 0,#000 var(--fl),#000 calc(100% - var(--fr)),transparent 100%);
+  mask-image:linear-gradient(to right,transparent 0,#000 var(--fl),#000 calc(100% - var(--fr)),transparent 100%)}
+.fx-lane .fx-lane-box.fade-l{--fl:clamp(40px,8vw,96px)}
+.fx-lane .fx-lane-box.fade-r{--fr:clamp(40px,8vw,96px)}
+.fx-lane #strip{width:max-content;overflow:visible;grid-auto-columns:min(86cqw,380px);scroll-snap-type:none;
+  -webkit-mask-image:none;mask-image:none}
+/* the browser runs it with the scroll; without scroll-driven animations fx.js sets translate itself */
+@supports (animation-timeline: view()){
+  .fx-lane #strip{animation:fxLane linear both;animation-timeline:--fx-proj;animation-range:contain 0% contain 100%}
+}
+@keyframes fxLane{from{translate:0 0}to{translate:calc(-1 * var(--fx-travel,0px)) 0}}
