@@ -144,9 +144,13 @@
 .fx-rv .fx-in .fx-w > span{animation:fxWord .9s cubic-bezier(.2,.75,.15,1) backwards;animation-delay:calc(var(--w,0) * 55ms)}
 @keyframes fxWord{from{translate:0 112%}to{translate:0 0}}
 
-/* Price count-up: the final text is there for screen readers, the moving copy keeps its width */
+/* Visually hidden, still read by screen readers (the typed hero text) */
 .fx-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-.fx-num{display:inline-block;font-variant-numeric:tabular-nums}
+/* Price count-up (stage 10): the final price holds its place unseen (screen readers still read it), the counting
+   copy lies over it on the side the price is aligned to, so a wider value on the way never moves the layout */
+.fx-count{position:relative}
+.fx-count > .fx-pfinal{opacity:0}
+.fx-count > .fx-pcount{position:absolute;top:0;white-space:nowrap;pointer-events:none}
 
 /* Steps: an accent line draws over the grey one as the steps scroll through the viewport */
 .fx-rv .steps{position:relative}

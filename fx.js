@@ -18,7 +18,10 @@
   const RV_ITEMS=".sec-head p,#strip > *,.price-group > *,.terms > *,#steps > li,.contact .lead,.contact .tg,.clist > li";
   const RV_HEADS=".sec-head h2,.steps-title,.contact h2";
   const RV_STEP=70, RV_WORD=55, RV_AFTER_WORDS=140, RV_MAX_I=8, RV_DUR=900; // ms
-  const COUNT_DUR=1100;                   // price count-up, ms
+  // Price count-up: a price counts from zero in steps of 0.1 (millions), 10 (thousands) or 1 (percent),
+  // COUNT_STEP_MS a step, but never shorter than COUNT_MIN or longer than COUNT_MAX
+  const COUNT_STEP_MS=60, COUNT_MIN=2000, COUNT_MAX=3000;
+  const COUNT_SEEN=.6, COUNT_STAGGER=120, COUNT_DELAY=200; // starts once this much of the row is in view; rows in turn
   const PIN_FADE=.82, PIN_SAMPLES=24;     // card fades into the logo after this share of the flight
   const MORPH_WAIT=300;                   // how long the card → dialog morph waits for the first frame to decode, ms
   const MIN_MEMORY=4, MIN_CORES=4;        // 3D card: weaker devices keep the CSS card (deviceMemory GB, hardwareConcurrency)
@@ -255,7 +258,6 @@
       const words=b.querySelectorAll(".fx-w").length, base=words?RV_AFTER_WORDS+words*RV_WORD/2:0;
       const items=[...b.querySelectorAll(RV_ITEMS)];
       items.forEach((el,i)=>el.style.setProperty("--d",`${base+Math.min(i,RV_MAX_I)*RV_STEP}ms`));
-      b.querySelectorAll(".pprice").forEach((el,i)=>countUp(el,base+(i+1)*RV_STEP+120));
       setTimeout(()=>{ b.classList.remove("fx-in"); items.forEach(el=>el.style.removeProperty("--d")); },
         base+Math.max(words*RV_WORD,Math.min(items.length,RV_MAX_I)*RV_STEP)+RV_DUR);
     };
@@ -274,26 +276,71 @@
     document.addEventListener("vz:lang",()=>scan(false));
   }
 
-  // Count a price up from 0 in the same format fmtPrice produced. Screen readers get the final text right away,
-  // the moving copy is aria-hidden and keeps the final width so nothing around it shifts.
-  function countUp(el,delay){
-    const final=el.textContent, m=final.match(/\d+(?:[.,]\d+)?/); if(!m) return;
-    const dec=(m[0].split(/[.,]/)[1]||"").length, sep=m[0].includes(",")?",":".", to=parseFloat(m[0].replace(",","."));
-    const group=s=>s.replace(/^\d+/,d=>d.replace(/\B(?=(\d{3})+(?!\d))/g," "));
-    const fmt=v=>final.slice(0,m.index)+group(v.toFixed(dec).replace(".",sep))+final.slice(m.index+m[0].length);
-    const w=el.getBoundingClientRect().width;
-    el.innerHTML=`<span class="fx-sr"></span><span class="fx-num" aria-hidden="true" style="min-width:${w.toFixed(1)}px"></span>`;
-    el.firstChild.textContent=final;
-    const vis=el.lastChild; vis.textContent=fmt(0);
-    let t0=0;
-    const tick=now=>{
-      if(!el.isConnected) return;
-      if(!t0) t0=now;
-      const t=Math.min(1,(now-t0)/COUNT_DUR);
-      if(t<1){ vis.textContent=fmt(to*(1-Math.pow(1-t,3))); requestAnimationFrame(tick); }
-      else el.textContent=final;
-    };
-    setTimeout(()=>requestAnimationFrame(tick),delay);
+  /* ---------- price count-up ---------- */
+  // Each price counts up from zero in the same format fmtPrice produced: "0,1 → 0,2 → … → 1,9 → 2 млн",
+  // "10 → 20 → … → 400 тыс.", "+1% → … → +25%" (the separator follows the language). It starts when its row is
+  // well in view, once per page load; a language switch mid-count just shows the result.
+  // The final text keeps its place in the layout (transparent, still read by screen readers) and the counting copy
+  // lies over it, so a wider value on the way ("1,9" over "2") never moves anything.
+  if(io){
+    const counted=new Set();              // indices of the prices already counted (or counting)
+    const all=()=>[...document.querySelectorAll(".pprice")];
+    // what to count: the number, its step and the decimals shown on the way
+    function plan(text){
+      const m=text.match(/\d+(?:[.,]\d+)?/); if(!m) return null;
+      const after=text.slice(m.index+m[0].length), to=parseFloat(m[0].replace(",","."));
+      const sep=m[0].match(/[.,]/)?m[0].match(/[.,]/)[0]:(root.lang==="en"?".":",");
+      const step=/^\s*(млн|mln|M)/.test(after)?.1:/^\s*(тыс|ming|K)/.test(after)?10:1;
+      return {m,to,sep,step,dec:step<1?1:0,n:Math.max(1,Math.round(to/step))};
+    }
+    function prepare(el){
+      if(el.querySelector(".fx-pcount")) return;
+      const text=el.textContent, p=plan(text); if(!p) return;
+      const fmt=k=>k>=p.n?text:text.slice(0,p.m.index)+(k*p.step).toFixed(p.dec).replace(".",p.sep)+text.slice(p.m.index+p.m[0].length);
+      el.classList.add("fx-count");
+      el.innerHTML='<span class="fx-pfinal"></span><span class="fx-pcount" aria-hidden="true"></span>';
+      el.firstChild.textContent=text;
+      // as wide as its widest value from the start ("1,9" or the result), so only the text changes inside it
+      const vis=el.lastChild; let w=0;
+      for(const v of [fmt(p.n-1),text]){ vis.textContent=v; w=Math.max(w,vis.getBoundingClientRect().width); }
+      vis.style.minWidth=Math.ceil(w)+"px"; vis.textContent=fmt(0);
+      align(el);
+      el._count={text,fmt,n:p.n};
+    }
+    // the copy hugs the side the price is aligned to (right on wide screens, left in the one-column layout)
+    const align=el=>{ const c=el.lastChild, right=getComputedStyle(el).textAlign==="right"; c.style.right=right?"0":"auto"; c.style.left=right?"auto":"0"; };
+    function run(el){
+      const c=el._count; if(!c) return;
+      const vis=el.lastChild, dur=Math.min(COUNT_MAX,Math.max(COUNT_MIN,c.n*COUNT_STEP_MS));
+      let t0=0, k=0;
+      const done=()=>{ if(el.isConnected){ el.textContent=c.text; el.classList.remove("fx-count"); } };
+      const tick=now=>{
+        if(!el.isConnected) return;
+        if(!t0) t0=now;
+        const t=Math.min(1,(now-t0)/dur);
+        // eased by step index: brisk at first, the last steps slow down into the result; never skips back
+        const next=Math.max(k,Math.floor(c.n*Math.sin(t*Math.PI/2)));
+        if(next!==k){ k=next; vis.textContent=c.fmt(k); }
+        if(t<1) requestAnimationFrame(tick); else done();
+      };
+      requestAnimationFrame(tick);
+    }
+    const obs=new IntersectionObserver(es=>{
+      const ready=es.filter(e=>e.isIntersecting).map(e=>e.target);
+      ready.forEach((el,i)=>{
+        obs.unobserve(el);
+        const idx=all().indexOf(el); if(idx<0 || counted.has(idx)) return;
+        counted.add(idx);
+        // wait for the row's own reveal, then go one after another
+        const go=()=>{ if(!el.isConnected) return; if(el.closest(".fx-wait")) return setTimeout(go,100); run(el); };
+        setTimeout(go,COUNT_DELAY+i*COUNT_STAGGER);
+      });
+    },{threshold:COUNT_SEEN});
+    // the prices still to count show zero and wait; the counted ones (re-rendered by a language switch) stay as they are
+    const arm=()=>all().forEach((el,i)=>{ if(counted.has(i)) return; prepare(el); obs.observe(el); });
+    arm();
+    document.addEventListener("vz:lang",arm);
+    addEventListener("resize",()=>document.querySelectorAll(".fx-count").forEach(align),{passive:true});
   }
 
   // Steps line: CSS scroll-driven animation where supported, otherwise --fx-p from scroll
