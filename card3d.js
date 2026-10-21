@@ -9,7 +9,10 @@ const PERSPECTIVE=1400;              // px, the same as .scene in styles.css
 const PAD_X=.14, PAD_Y=.26;          // canvas overhang around the card, share of its size (room for tilt and flip)
 const THICK=.6/85;                   // card stock: 0.6 mm on an 85 mm card
 const BEVEL=.35, RADIUS=16;          // px; RADIUS matches .face border-radius
-const TEX_PER_PX=1.5, TEX_MAX=2048;  // texture px per CSS px at DPR 1 (scaled by DPR up to 2), capped in width
+// Supersampling: render at SSAA× the screen resolution (up to MAX_RATIO× CSS px) and let the browser scale it down.
+// With MSAA ×4 on top that is 16 samples a pixel, so nearly straight edges don't crawl in stair steps as the card moves.
+const SSAA=2, MAX_RATIO=3;
+const TEX_MAX=2048;                  // textures match the render resolution, capped in width
 const EXPOSURE=1, ENV_LIGHT=.45;     // tone mapping exposure, RoomEnvironment strength
 const BASE_ROUGH=.5, FOIL_ROUGH=.36, FOIL_METAL=.8, ROSETTE_METAL=.2; // FOIL_METAL < 1 keeps some printed gold when the foil faces away from the light // front: card stock under lacquer, gold foil
 const CLEARCOAT=.2, CLEARCOAT_ROUGH=.34, SPECULAR=.1; // SPECULAR: dielectric reflection of the stock (metal is unaffected)
@@ -53,7 +56,7 @@ export async function mount(sceneEl){
   try{
     renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true,powerPreference:"high-performance"});
   }catch(e){ return null; }        // no WebGL2: the CSS card stays
-  renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
+  renderer.setPixelRatio(Math.min((devicePixelRatio||1)*SSAA,MAX_RATIO));
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure=EXPOSURE;
   renderer.outputColorSpace=THREE.SRGBColorSpace;
@@ -98,8 +101,10 @@ export async function mount(sceneEl){
     // body: rounded slab with a small bevel; its caps sit under the two printed faces, so it only shows as the edge
     const body=new THREE.ExtrudeGeometry(shape,{depth:T-2*b,bevelEnabled:true,bevelThickness:b,bevelSize:b,bevelSegments:2,curveSegments:12});
     body.translate(0,0,-(T-2*b)/2);
-    const face=new THREE.ShapeGeometry(shape,12), uv=face.attributes.uv, pos=face.attributes.position;
-    for(let i=0;i<uv.count;i++) uv.setXY(i,(pos.getX(i)+W/2-b)/(W-2*b),(pos.getY(i)+H/2-b)/(H-2*b));
+    // the printed faces cover the whole outline, bevel included: the light edge shows only where the card turns
+    // its side to you (a sub-pixel rim around the face would break up into flickering dots)
+    const face=new THREE.ShapeGeometry(rounded(W,H,RADIUS),12), uv=face.attributes.uv, pos=face.attributes.position;
+    for(let i=0;i<uv.count;i++) uv.setXY(i,(pos.getX(i)+W/2)/W,(pos.getY(i)+H/2)/H);
     const f=new THREE.Mesh(face,matFront); f.position.z=T/2+.05;
     const k=new THREE.Mesh(face,matBack); k.rotation.y=Math.PI; k.position.z=-T/2-.05;
     pivot.add(new THREE.Mesh(body,matEdge),f,k);
@@ -162,7 +167,7 @@ export async function mount(sceneEl){
   }
   function size(cv,face){
     const w=face.offsetWidth, h=face.offsetHeight;
-    const s=Math.min(TEX_MAX/w,Math.min(devicePixelRatio||1,2)*TEX_PER_PX);
+    const s=Math.min(TEX_MAX/w,renderer.getPixelRatio());
     cv.width=Math.round(w*s); cv.height=Math.round(h*s);
     const c=cv.getContext("2d"); c.setTransform(s,0,0,s,0,0); c.textBaseline="alphabetic";
     return [c,s,w,h];
