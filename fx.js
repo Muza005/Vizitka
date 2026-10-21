@@ -124,6 +124,7 @@
       for(const [el,y] of from){
         const to=layoutTop(el), d=y-to, h=el.offsetHeight;
         const prev=glides.get(el); if(prev) prev.cancel();
+        if(el===cardSwap.el && cardSwap.on) continue;            // it leaves and comes back on its own (below)
         // only what can be seen on the way
         if(Math.abs(d)<.5 || Math.max(y,to)+h<0 || Math.min(y,to)>innerHeight) continue;
         const a=el.animate({translate:[`0 ${d.toFixed(1)}px`,"0 0"]},{duration:GLIDE_DUR,easing:GLIDE_EASE});
@@ -146,6 +147,32 @@
       const ro=new ResizeObserver(()=>{ if(holding) holdHero(); });
       holdItems.forEach(it=>ro.observe(it.el));
     }
+  }
+
+  /* ---------- language switch: the hero card leaves and comes back with the texts ---------- */
+  // script.js fades the texts out (vz:langout), swaps the language (vz:lang) and fades them back in. The hero card
+  // goes along as a whole: it sinks and fades out with them and rises back in, already in the new language, so its
+  // text never visibly changes. Only while the hero is on screen (not while the card sits in the header).
+  const CARD_OUT=180, CARD_IN=520, CARD_SINK=18;  // ms (out matches the texts' fade-out in script.js), px
+  const cardSwap={el:heroEl && heroEl.querySelector(".hero-card"),on:false,out:null};
+  if(cardSwap.el && !REDUCED && Element.prototype.animate){
+    const c=cardSwap;
+    document.addEventListener("vz:langout",()=>{
+      const r=heroEl.getBoundingClientRect();
+      if(r.bottom<innerHeight*.6 || r.top>innerHeight*.4) return;
+      c.on=true;
+      if(c.out) c.out.cancel();
+      c.out=c.el.animate([{opacity:1,translate:"0 0"},{opacity:0,translate:`0 ${CARD_SINK}px`}],
+        {duration:CARD_OUT,easing:"cubic-bezier(.4,0,1,1)",fill:"forwards"});
+    });
+    // registered after the hero glides above, so this runs once they're set up
+    document.addEventListener("vz:lang",()=>{
+      if(!c.on) return;
+      const back=c.el.animate([{opacity:0,translate:`0 ${CARD_SINK}px`},{opacity:1,translate:"0 0"}],
+        {duration:CARD_IN,easing:"cubic-bezier(.22,.61,.36,1)"});
+      if(c.out){ c.out.cancel(); c.out=null; }
+      back.onfinish=back.oncancel=()=>{ if(!c.out) c.on=false; };
+    });
   }
 
   /* ---------- hero intro: the card and the buttons rise in, the text types itself out ---------- */
@@ -522,6 +549,11 @@
   const WHEEL_GAP=140;                    // ms without wheel events that ends a gesture
   const SETTLE=150;                       // without scrollend: ms of scroll silence that counts as rest
   const SETTLE_SAFE=400;                  // with it: the same after this long, in case a scrollend never comes
+  // Smooth wheel: the page follows the wheel on a critically damped spring of this angular frequency (rad/s):
+  // it speeds up, then settles softly into place, ~95 % there after 4.74/SMOOTH_W s (about 0.6 s)
+  const SMOOTH_W=8;
+  const SMOOTH_ACC=9000;                  // px/s²: speeding up is capped at this (a far target pulls smoothly, not
+                                          // with a kick); slowing down isn't, so it never overshoots
   const headEl=document.querySelector(".top"), footEl=document.querySelector("body > footer");
   const pageEls=[heroEl,...["projects","prices","terms","contact"].map(id=>document.getElementById(id))].filter(Boolean);
   const projEl=document.getElementById("projects");
@@ -535,8 +567,10 @@
   const easeIO=p=>p<.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2;
   let glideNow=null;                      // {raf, gate}
   function stopGlide(){ if(glideNow){ cancelAnimationFrame(glideNow.raf); glideNow=null; } }
+  let smoothNow=null;                     // the smooth wheel (below): {y, v, target, at, t, raf}
+  function stopSmooth(){ if(smoothNow){ cancelAnimationFrame(smoothNow.raf); smoothNow=null; } }
   function glideTo(y,dur,gate){
-    stopGlide();
+    stopGlide(); stopSmooth();
     const from=scrollY, d=Math.max(0,Math.min(maxScroll(),y))-from;
     if(Math.abs(d)<1) return;
     dur=dur||Math.min(SNAP_MAX,SNAP_MIN+SNAP_K*Math.abs(d));
@@ -575,19 +609,24 @@
     let settleT=0;
     function settle(){
       clearTimeout(settleT);
-      if(busy() || glideNow || touching || dragging || performance.now()<quietUntil) return;
+      if(busy() || glideNow || smoothNow || touching || dragging || performance.now()<quietUntil) return;
       // a wheel gesture still going (a pause between notches, or a scrollend from a glide it just stopped):
       // wait for it to end, or the pull would fight it
       const idle=performance.now()-wheelAt;
       if(idle<WHEEL_GAP){ settleT=setTimeout(settle,WHEEL_GAP-idle+10); return; }
-      const y=scrollY, pages=stops();
-      if(pages.some(p=>!p.pts && y>p.s+1 && y<p.e-1)) return; // inside a long page: read freely
+      const to=snapFor(scrollY);
+      if(to!==null) glideTo(to);
+    }
+    // the page edge a scroll resting at y should settle on, or null where it may rest as it is
+    function snapFor(y){
+      const pages=stops();
+      if(pages.some(p=>!p.pts && y>p.s+1 && y<p.e-1)) return null; // inside a long page: read freely
       const pts=[...new Set(pages.flatMap(p=>[p.s,p.e,...(p.pts||[])]).map(Math.round))].sort((a,b)=>a-b);
       let a=null, b=null;
       for(const p of pts){ if(p<=y+.5) a=p; if(p>=y-.5 && b===null) b=p; }
-      if(a===null || b===null || Math.abs(y-a)<1 || Math.abs(y-b)<1) return;
+      if(a===null || b===null || Math.abs(y-a)<1 || Math.abs(y-b)<1) return null;
       const th=lastInput==="key"?1:Math.min(INTENT*innerHeight,INTENT_MAX);
-      glideTo(dir>0?(y-a>=th?b:a):dir<0?(b-y>=th?a:b):(y-a<b-y?a:b));
+      return dir>0?(y-a>=th?b:a):dir<0?(b-y>=th?a:b):(y-a<b-y?a:b);
     }
     addEventListener("scroll",()=>{
       const y=scrollY;
@@ -609,6 +648,43 @@
       if(!down && y>.5 && y<=ps+1) return 0;
       return null;
     };
+    // Smooth wheel (mouse and touchpad; touch keeps its own momentum): each wheel step moves a target and the page
+    // follows on the spring, so slow turns glide in with a slight lag and fast spins ease up and settle softly.
+    // Not over boxes that scroll themselves, in a dialog, or when a handler already took the wheel.
+    const scrollsInside=el=>{
+      for(let n=el;n && n!==document.body && n!==root;n=n.parentElement){
+        if(/(auto|scroll)/.test(getComputedStyle(n).overflowY) && n.scrollHeight>n.clientHeight+1) return true;
+      }
+      return false;
+    };
+    const smoothable=e=>!REDUCED && !e.defaultPrevented && !document.querySelector("dialog[open]")
+      && !root.classList.contains("fx-vt") && !scrollsInside(e.target);
+    function smoothStep(now){
+      const m=smoothNow; if(!m) return;
+      if(Math.abs(scrollY-m.at)>3){ smoothNow=null; return; }   // something else scrolled the page: it wins
+      const dt=Math.min(.032,m.t?(now-m.t)/1000:1/60); m.t=now;
+      let a=SMOOTH_W*SMOOTH_W*(m.target-m.y)-2*SMOOTH_W*m.v;
+      if(Math.sign(a)===Math.sign(m.v) || Math.abs(m.v)<1) a=Math.max(-SMOOTH_ACC,Math.min(SMOOTH_ACC,a));
+      m.v+=a*dt; m.y+=m.v*dt;
+      const done=Math.abs(m.target-m.y)<1 && Math.abs(m.v)<40;
+      if(done) m.y=m.target;
+      scrollTo({top:m.y,behavior:"instant"}); m.at=scrollY;
+      if(done){ smoothNow=null; settle(); return; }
+      m.raf=requestAnimationFrame(smoothStep);
+    }
+    function smoothBy(dy){
+      if(!smoothNow){ smoothNow={y:scrollY,v:0,target:scrollY,at:scrollY,t:0,raf:0,snap:0}; smoothNow.raf=requestAnimationFrame(smoothStep); }
+      const m=smoothNow;
+      m.target=Math.max(0,Math.min(maxScroll(),m.target+dy));
+      // once the wheel goes quiet, the spring heads straight for where the magnet would take it: one motion that
+      // eases out on the page edge, instead of stopping short and starting again
+      clearTimeout(m.snap);
+      m.snap=setTimeout(()=>{
+        if(smoothNow!==m || busy() || touching || dragging) return;
+        const to=snapFor(m.target);
+        if(to!==null) m.target=to;
+      },WHEEL_GAP);
+    }
     addEventListener("wheel",e=>{
       if(e.ctrlKey || Math.abs(e.deltaX)>Math.abs(e.deltaY)) return;
       lastInput="wheel";
@@ -616,20 +692,24 @@
       if(glideNow && glideNow.gate){ e.preventDefault(); return; }
       if(wheelLock){ if(fresh) wheelLock=false; else { e.preventDefault(); return; } }
       stopGlide();
-      if(busy()) return;
-      const down=e.deltaY>0, to=gateTarget(down);
-      if(to!==null){ e.preventDefault(); gate(to); return; }
-      // a long flick upward doesn't fly past the projects into the hero: it stops at the projects first
-      if(!down && heroFits()){
-        const ps=pageStart(projEl), k=e.deltaMode===1?40:e.deltaMode===2?innerHeight:1;
-        if(scrollY>ps+1 && scrollY+e.deltaY*k<ps){ e.preventDefault(); gate(ps); }
+      const dy=e.deltaY*(e.deltaMode===1?40:e.deltaMode===2?innerHeight:1);
+      if(!busy()){
+        const down=dy>0, to=gateTarget(down);
+        if(to!==null){ e.preventDefault(); stopSmooth(); gate(to); return; }
+        // a long flick upward doesn't fly past the projects into the hero: it stops at the projects first
+        if(!down && heroFits()){
+          const ps=pageStart(projEl), from=smoothNow?smoothNow.target:scrollY;
+          if(scrollY>ps+1 && from+dy<ps){ e.preventDefault(); stopSmooth(); gate(ps); return; }
+        }
       }
+      if(smoothable(e)){ e.preventDefault(); smoothBy(dy); }
     },{passive:false});
     const KEYS={ArrowDown:1,PageDown:1," ":1,ArrowUp:-1,PageUp:-1};
     addEventListener("keydown",e=>{
       lastInput="key";
       if(e.key==="Tab") quietUntil=performance.now()+1000;   // focus moves scroll the page; leave them be
       if(glideNow && !glideNow.gate) stopGlide();
+      stopSmooth();
       const k=KEYS[e.key]; if(!k || e.altKey || e.ctrlKey || e.metaKey) return;
       const t=e.target;
       if(t && t.closest && t.closest("input,textarea,select,[contenteditable],dialog")) return;
@@ -639,7 +719,7 @@
       if(to!==null){ e.preventDefault(); gate(to); }
     });
     let touchY=0;
-    addEventListener("touchstart",e=>{ touching=true; lastInput="touch"; touchY=e.touches[0].clientY; if(!(glideNow && glideNow.gate)) stopGlide(); },{passive:true});
+    addEventListener("touchstart",e=>{ touching=true; lastInput="touch"; touchY=e.touches[0].clientY; stopSmooth(); if(!(glideNow && glideNow.gate)) stopGlide(); },{passive:true});
     addEventListener("touchmove",e=>{
       if(glideNow && glideNow.gate){ if(e.cancelable) e.preventDefault(); return; }
       const dy=touchY-e.touches[0].clientY;
@@ -652,7 +732,7 @@
     // a press stops a glide; on the scrollbar it's a drag, and the page is left alone until it's let go
     addEventListener("pointerdown",e=>{
       if(e.pointerType!=="mouse") return;
-      lastInput="pointer"; stopGlide();
+      lastInput="pointer"; stopGlide(); stopSmooth();
       if(e.clientX>=root.clientWidth) dragging=true;
     },true);
     addEventListener("pointerup",()=>{ if(dragging){ dragging=false; settle(); } },true);

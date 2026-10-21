@@ -286,6 +286,7 @@ function switchLang(l){
   store.set("lang", l);
   if(REDUCED || !Element.prototype.animate){ applyLang(l,true); return; }
   langBusy=true; movePill(l);
+  document.dispatchEvent(new CustomEvent("vz:langout"));
   const els=fadeTargets();
   const outs=els.map(el=>el.animate([{opacity:1,filter:"blur(0px)"},{opacity:0,filter:"blur(4px)"}],{duration:180,easing:"cubic-bezier(.4,0,1,1)",fill:"forwards"}));
   Promise.all(outs.map(a=>a.finished.catch(()=>{}))).then(()=>{
