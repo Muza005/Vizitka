@@ -238,29 +238,6 @@ html.fx-vt::view-transition-new(root){animation:fxVtFade .4s var(--ease) both}
 /* a section focused after a keyboard-activated link: the focus moves there for screen readers and Tab, no ring */
 section[tabindex="-1"]:focus{outline:none}
 
-/* ---------- Stage 9: projects lane ---------- */
-/* html.fx-lane (fx.js, on screens tall enough for the pages): #projects grows by --fx-run and its content sticks
-   under the header, while the vertical scroll moves the strip sideways by --fx-travel (both set by fx.js). The
-   strip is as wide as its cards inside .fx-lane-box, which clips it and fades its edges: no scrollbar, and
-   script.js finds nothing to scroll sideways, so its wheel handler stands aside. */
-.fx-lane #projects{height:calc(100svh - var(--fx-head) + var(--fx-run,0px));min-height:0;padding-block:0;display:block;
-  view-timeline:--fx-proj block;view-timeline-inset:var(--fx-head) 0}
-.fx-lane #projects > .wrap{position:sticky;top:var(--fx-head);height:calc(100svh - var(--fx-head));
-  display:flex;flex-direction:column;justify-content:center}
-.fx-lane .fx-lane-box{container-type:inline-size;overflow-x:clip;touch-action:pan-y;
-  --fl:0px;--fr:0px;transition:--fl .45s var(--ease),--fr .45s var(--ease);
-  -webkit-mask-image:linear-gradient(to right,transparent 0,#000 var(--fl),#000 calc(100% - var(--fr)),transparent 100%);
-  mask-image:linear-gradient(to right,transparent 0,#000 var(--fl),#000 calc(100% - var(--fr)),transparent 100%)}
-.fx-lane .fx-lane-box.fade-l{--fl:clamp(40px,8vw,96px)}
-.fx-lane .fx-lane-box.fade-r{--fr:clamp(40px,8vw,96px)}
-.fx-lane #strip{width:max-content;overflow:visible;grid-auto-columns:min(86cqw,380px);scroll-snap-type:none;
-  -webkit-mask-image:none;mask-image:none}
-/* the browser runs it with the scroll; without scroll-driven animations fx.js sets translate itself */
-@supports (animation-timeline: view()){
-  .fx-lane #strip{animation:fxLane linear both;animation-timeline:--fx-proj;animation-range:contain 0% contain 100%}
-}
-@keyframes fxLane{from{translate:0 0}to{translate:calc(-1 * var(--fx-travel,0px)) 0}}
-
 /* ---------- Stage 11: terms as one page, the steps timeline ---------- */
 /* Tighter rhythm so the terms and all five steps fit one screen on a desktop (where they still don't, the page
    just scrolls, see the pages magnet) */
@@ -283,3 +260,172 @@ section[tabindex="-1"]:focus{outline:none}
 .fx-tl .steps li > :is(h4,p){opacity:0;translate:0 10px;transition:opacity .5s var(--ease),translate .6s cubic-bezier(.2,.75,.15,1)}
 .fx-tl .steps li.fx-on > :is(h4,p){opacity:1;translate:0 0}
 .fx-tl .steps li.fx-on > p{transition-delay:.08s}
+
+/* ---------- Stage 12: projects carousel ---------- */
+/* html.fx-car-on (fx.js, where the pages are on): #projects is one screen, a stage with the projects in a row: the
+   active one in the middle, its neighbours smaller and faded at the sides. Cards are placed by fx.js (inline transform
+   and opacity, one per distance from the middle); every move is the transitions below. Sizes are the 900×540 design
+   times --k (fx.js, from the stage's room); under 1000px wide the card stands upright (.fx-car-n). Without it the
+   plain strip from script.js stays. */
+.fx-car,.fx-car-sub,.fx-car-ctrl{display:none}
+.fx-car-on #projects :is(#strip,.strip-ctrl,[data-i="projects_p"]){display:none}
+.fx-car{
+  --car-dur:950ms; --car-ease:cubic-bezier(.65,0,.35,1); /* fx.js: CAR_DUR, CAR_EASE */
+  --k:1;
+  --car-card:#FFFFFF; --car-vis:#EDF0F9; --car-frame:#FFFFFF; --car-bar:#F1F3F9; --car-pip:rgba(19,25,54,.16);
+  --car-line:rgba(19,25,54,.09); --car-chip:var(--tint); --car-chip-ink:var(--ink); --car-off:rgba(19,25,54,.16);
+  --car-shadow:0 40px 80px -38px rgba(19,25,54,.34),0 2px 6px rgba(19,25,54,.05);
+  --car-shot-sh:0 18px 36px -18px rgba(19,25,54,.45);
+  --car-glow:11%; --car-vis-glow:22%;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) .fx-car{
+    --car-card:#171D3A; --car-vis:#0F1429; --car-frame:#0B0F21; --car-bar:rgba(255,255,255,.045); --car-pip:rgba(255,255,255,.2);
+    --car-line:rgba(255,255,255,.08); --car-chip:#232A4D; --car-chip-ink:#D6D9EA; --car-off:rgba(233,235,245,.22);
+    --car-shadow:0 40px 90px -30px rgba(0,0,0,.65); --car-shot-sh:0 18px 40px -14px rgba(0,0,0,.7);
+    --car-glow:20%; --car-vis-glow:26%;
+  }
+}
+:root[data-theme="dark"] .fx-car{
+  --car-card:#171D3A; --car-vis:#0F1429; --car-frame:#0B0F21; --car-bar:rgba(255,255,255,.045); --car-pip:rgba(255,255,255,.2);
+  --car-line:rgba(255,255,255,.08); --car-chip:#232A4D; --car-chip-ink:#D6D9EA; --car-off:rgba(233,235,245,.22);
+  --car-shadow:0 40px 90px -30px rgba(0,0,0,.65); --car-shot-sh:0 18px 40px -14px rgba(0,0,0,.7);
+  --car-glow:20%; --car-vis-glow:26%;
+}
+/* project accents: --acc fills (button, bars, glow); --acc-ink is for text, darker on the light theme for contrast */
+.fx-car{--acc:var(--lapis);--acc-l:var(--lapis)}
+.fx-car [data-id="crm"],.fx-car[data-on="crm"]{--acc:#C7EC3A;--acc-l:#5B7A00}
+.fx-car [data-id="arcade"],.fx-car[data-on="arcade"]{--acc:#4FD8F0;--acc-l:#087A91}
+.fx-car [data-id="drive"],.fx-car[data-on="drive"]{--acc:#FF8F3A;--acc-l:#B34E00}
+:is(.fx-car,.fx-car-card){--acc-ink:var(--acc-l)}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) :is(.fx-car,.fx-car-card){--acc-ink:var(--acc)} }
+:root[data-theme="dark"] :is(.fx-car,.fx-car-card){--acc-ink:var(--acc)}
+
+.fx-car-on #projects{height:calc(100svh - var(--fx-head));min-height:0;padding-block:clamp(20px,4.5vh,48px) 0;
+  display:flex;flex-direction:column;justify-content:flex-start;position:relative;isolation:isolate;overflow-x:clip}
+.fx-car-on #projects > .wrap{width:100%}
+.fx-car-on #projects .sec-head{margin-bottom:0;align-items:flex-end}
+.fx-car-on .fx-car-sub{display:block}
+.fx-car-on .fx-car-ctrl{display:flex;align-items:center;gap:10px}
+.fx-car-count{font-size:15px;color:var(--muted);font-variant-numeric:tabular-nums;margin-right:12px;white-space:nowrap}
+.fx-car-count b{color:var(--ink);font-weight:700}
+.fx-car-ctrl .icon-btn{width:44px;height:44px;border-radius:12px}
+.fx-car-ctrl [data-go="-1"]:not(:disabled):hover svg{transform:translateX(-3px)}
+.fx-car-ctrl [data-go="1"]:not(:disabled):hover svg{transform:translateX(3px)}
+
+.fx-car-on .fx-car{display:flex;flex-direction:column;flex:1;min-height:0}
+/* the glow behind the stage: one layer per project, crossfading */
+.fx-car-glow{position:absolute;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
+.fx-car-glow i{position:absolute;left:50%;top:55%;width:calc(1500px * var(--k));height:calc(900px * var(--k));translate:-50% -50%;
+  border-radius:50%;opacity:0;transition:opacity var(--car-dur) var(--car-ease);
+  background:radial-gradient(closest-side,color-mix(in srgb,var(--acc) var(--car-glow),transparent),transparent)}
+.fx-car-glow i.on{opacity:1}
+.fx-car-track{flex:1;min-height:0;display:grid;grid-template:minmax(0,1fr)/minmax(0,1fr);place-items:center;
+  transition:opacity .9s var(--ease),translate 1.1s cubic-bezier(.2,.75,.15,1)}
+/* the first time the section comes into view the cards rise in */
+.fx-car:not(.fx-car-shown) .fx-car-track{opacity:0;translate:0 40px}
+
+.fx-car-card{grid-area:1/1;position:relative;width:calc(900px * var(--k));height:calc(540px * var(--k));
+  transition:transform var(--car-dur) var(--car-ease),opacity var(--car-dur) var(--car-ease)}
+.fx-car-card:not(.on){pointer-events:none}
+.fx-car-card.side{pointer-events:auto}
+.fx-car-in{height:100%;display:grid;grid-template-columns:calc(500px * var(--k)) minmax(0,1fr);
+  border-radius:max(16px,calc(28px * var(--k)));overflow:hidden;background:var(--car-card);
+  border:1px solid var(--car-line);box-shadow:var(--car-shadow)}
+.fx-car-hit{position:absolute;inset:0;border:0;padding:0;margin:0;background:none;border-radius:max(16px,calc(28px * var(--k)));cursor:pointer}
+.fx-car-hit[hidden]{display:none}
+
+/* picture side: the main screen in a browser frame, two more screens over it, a glow of the project's color */
+.fx-car-vis{position:relative;background:var(--car-vis);overflow:hidden;cursor:pointer}
+.fx-car-vis::before{content:"";position:absolute;left:8%;top:6%;width:84%;height:88%;pointer-events:none;
+  background:radial-gradient(closest-side,color-mix(in srgb,var(--acc) var(--car-vis-glow),transparent),transparent)}
+.fx-car-main,.fx-car-x{position:absolute;transition:translate var(--car-dur) var(--car-ease)}
+.fx-car-main{left:calc(36px * var(--k));top:calc(60px * var(--k));width:calc(428px * var(--k));
+  border-radius:max(8px,calc(12px * var(--k)));overflow:hidden;background:var(--car-frame);border:1px solid var(--car-line);
+  box-shadow:var(--car-shot-sh);translate:calc(var(--d,0) * -20px * var(--k)) 0}
+.fx-car-bar{height:max(16px,calc(28px * var(--k)));display:flex;align-items:center;gap:max(4px,calc(6px * var(--k)));
+  padding:0 max(8px,calc(12px * var(--k)));background:var(--car-bar)}
+.fx-car-bar i{width:max(5px,calc(8px * var(--k)));aspect-ratio:1;border-radius:50%;background:var(--car-pip);flex:none}
+.fx-car-bar i:last-child{flex:1;aspect-ratio:auto;height:max(6px,calc(10px * var(--k)));border-radius:99px;margin-left:max(6px,calc(10px * var(--k)))}
+.fx-car .pcover{border-radius:0;aspect-ratio:16/10}
+.fx-car-x{aspect-ratio:16/10;border-radius:max(6px,calc(10px * var(--k)));overflow:hidden;background:var(--car-frame);
+  border:1px solid var(--car-line);box-shadow:var(--car-shot-sh)}
+.fx-car-x img{width:100%;height:100%;object-fit:cover;object-position:top left}
+.fx-car-x1{left:calc(48px * var(--k));top:calc(354px * var(--k));width:calc(180px * var(--k));rotate:-3deg;
+  translate:calc(var(--d,0) * -40px * var(--k)) 0}
+.fx-car-x2{left:calc(252px * var(--k));top:calc(318px * var(--k));width:calc(204px * var(--k));rotate:2.5deg;
+  translate:calc(var(--d,0) * -56px * var(--k)) 0}
+
+/* text side, in four groups that rise in one after another on the card that arrives */
+.fx-car-txt{display:flex;flex-direction:column;min-width:0;min-height:0;padding:max(20px,calc(40px * var(--k))) max(20px,calc(32px * var(--k)))}
+.fx-car-g{opacity:.75;translate:0 10px;transition:opacity .3s var(--ease),translate .3s var(--ease)}
+.fx-car-card.on .fx-car-g{opacity:1;translate:0 0;transition-duration:.6s;transition-timing-function:cubic-bezier(.2,.75,.15,1);
+  transition-delay:calc(var(--car-dur) * .35 + var(--n) * 60ms)}
+.fx-car-num{font-family:var(--display);font-weight:800;font-size:max(34px,calc(56px * var(--k)));line-height:1;color:var(--acc-ink);
+  letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.fx-car-of{font-size:14px;font-weight:600;color:var(--muted);margin-left:6px}
+.fx-car-type{margin-top:max(12px,calc(22px * var(--k)));font-size:14px;font-weight:700;line-height:1.35;color:var(--acc-ink)}
+.fx-car-txt h3{margin-top:6px;font-size:max(24px,calc(36px * var(--k)));font-weight:800;letter-spacing:-.02em}
+.fx-car-short{margin-top:max(10px,calc(14px * var(--k)));font-size:clamp(14px,calc(16px * var(--k)),17px);line-height:1.6;color:var(--muted);
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
+.fx-car .chips{margin-top:max(12px,calc(18px * var(--k)))}
+.fx-car .chip{background:var(--car-chip);color:var(--car-chip-ink);font-size:13px;font-weight:600;padding:4px 12px}
+.fx-car-foot{margin-top:auto;padding-top:14px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 14px}
+.fx-car-cnt{font-size:14px;font-weight:600;color:var(--muted);white-space:nowrap}
+.fx-car-go{display:inline-flex;align-items:center;gap:8px;min-height:max(40px,calc(46px * var(--k)));padding:0 max(14px,calc(20px * var(--k)));
+  border:0;border-radius:12px;background:var(--acc);color:#10132A;font-weight:700;font-size:15px;cursor:pointer;white-space:nowrap;
+  transition:background-color .3s var(--ease),box-shadow .3s var(--ease)}
+.fx-car-go svg{width:16px;height:16px;flex:none;transition:transform .45s var(--ease)}
+.fx-car-go:hover{background:color-mix(in srgb,var(--acc) 86%,#fff);box-shadow:0 10px 24px -12px var(--acc)}
+.fx-car-go:hover svg{transform:translateX(3px)}
+/* tight rooms (fx.js): first the description gets shorter, then the chips go, then the description, and an upright
+   card's picture gets wider than tall */
+.fx-car-t1 .fx-car-short{-webkit-line-clamp:2;line-clamp:2}
+.fx-car-t2 .chips{display:none}
+.fx-car-t3 .fx-car-short{display:none}
+.fx-car-n.fx-car-t4 .pcover{aspect-ratio:2/1}
+
+/* bottom: progress bars in the middle (a pill slides to the active one), the hint on the right */
+.fx-car-bot{position:relative;height:56px;flex:none;width:100%;max-width:1160px;margin:0 auto;
+  padding-left:var(--gutter-l);padding-right:var(--gutter-r);display:flex;align-items:center;justify-content:flex-end}
+.fx-car-dots{position:absolute;left:50%;top:50%;height:4px;translate:-50% -50%}
+.fx-car-dots > *{position:absolute;left:0;top:0;height:4px;border-radius:2px;transition:transform var(--car-dur) var(--car-ease),opacity var(--car-dur) var(--car-ease),background-color var(--car-dur) var(--car-ease)}
+.fx-car-dots i{width:14px;background:var(--car-off)}
+.fx-car-dots b{width:40px;background:var(--acc)}
+.fx-car-hint{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+.fx-car-hint svg{width:18px;height:18px;flex:none}
+.fx-car-hint .wh{animation:fxWheel 1.8s var(--ease) infinite}
+@keyframes fxWheel{0%{transform:translateY(0);opacity:1}60%{transform:translateY(3px);opacity:0}61%{transform:translateY(-1px);opacity:0}100%{transform:translateY(0);opacity:1}}
+@media (hover:none),(max-width:700px){ .fx-car-hint{display:none} }
+
+/* upright card (narrow screens): the picture on top (just the main screen), the text below */
+.fx-car-n .fx-car-card{width:min(86vw,560px);height:auto}
+.fx-car-n .fx-car-in{grid-template-columns:minmax(0,1fr);border-radius:18px}
+.fx-car-n .fx-car-hit{border-radius:18px}
+.fx-car-n .fx-car-vis{padding:16px 16px 0}
+.fx-car-n .fx-car-vis::before{top:10%}
+.fx-car-n .fx-car-main{position:relative;left:0;top:0;width:100%;border-radius:10px}
+.fx-car-n .fx-car-x{display:none}
+.fx-car-n .fx-car-txt{padding:18px 20px 20px}
+.fx-car-n .fx-car-num{font-size:34px}
+.fx-car-n .fx-car-type{margin-top:12px;font-size:13px}
+.fx-car-n .fx-car-txt h3{font-size:24px}
+.fx-car-n .fx-car-short{font-size:15px}
+.fx-car-n .chips{margin-top:12px}
+.fx-car-n .fx-car-foot{padding-top:16px}
+.fx-car-n .fx-car-go{min-height:44px;padding:0 16px}
+@media (max-width:600px){
+  .fx-car-on #projects{padding-top:24px}
+  /* the counter and arrows go up beside the title, the subtitle under both */
+  .fx-car-on #projects .sec-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0 12px}
+  .fx-car-on #projects .sec-head > div:first-child{display:contents}
+  .fx-car-on .fx-car-ctrl{grid-row:1;grid-column:2}
+  .fx-car-on .fx-car-sub{grid-column:1/-1}
+  .fx-car-on #projects .sec-head h2{font-size:28px}
+  .fx-car-on .fx-car-sub{font-size:15px;margin-top:6px}
+  .fx-car-count{margin-right:4px}
+  .fx-car-ctrl .icon-btn{width:40px;height:40px}
+  .fx-car-bot{height:44px}
+}
+/* a silent jump (fx.js: reset while the section is out of view, resize) */
+.fx-car-now :is(.fx-car-card,.fx-car-g,.fx-car-main,.fx-car-x,.fx-car-dots > *,.fx-car-glow i){transition:none !important}

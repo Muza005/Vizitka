@@ -1,6 +1,7 @@
 /* Decorative motion for the page.
    Every device: hero auras, a ground shadow under the card and slow floating (CSS, off under reduced motion);
-   scroll reveals, price count-up, the pinned card, the project card ⇄ dialog morph (all off under reduced motion).
+   scroll reveals, price count-up, the pinned card, the projects carousel, the project card ⇄ dialog morph (all off
+   under reduced motion).
    Fine pointer only: cursor halo, magnetic buttons, spotlight cards, hero-wide gold, card depth parallax,
    project cover tilt and hover preview; on capable devices it also loads the WebGL card (card3d.js).
    One rAF loop drives the pointer effects; it sleeps once all motion has settled.
@@ -422,116 +423,218 @@
     let wt=0; addEventListener("resize",()=>{ clearTimeout(wt); wt=setTimeout(watch,200); },{passive:true});
   }
 
-  /* ---------- projects lane: scrolling down moves the projects sideways ---------- */
-  // On screens tall enough for the pages, #projects becomes a pinned stage (fx.css, html.fx-lane): its content sticks
-  // under the header and the strip slides left as the page scrolls, LANE_K px of scroll per px of slide, so the
-  // prices come only after the last project. The slide is a CSS scroll-driven animation (fx.css), run by the browser
-  // with the scroll; where that's missing it is set here from the scroll. The pages magnet stops at each card.
-  // Arrows, Tab and a sideways swipe move the page to the matching place. Plain strip without JS, on short screens,
-  // or when every card already fits.
-  const LANE_K=1.4;                       // px of vertical scroll per px the strip moves
-  const LANE_MIN_STEP=.3;                 // a card stop this close to the end (share of a card step) merges into it
-  const LANE_MIN_H=560;                   // as PAGES_MIN_H below
-  const lane=(()=>{
-    const sec=document.getElementById("projects"), strip=document.getElementById("strip");
-    if(!sec || !strip || !headElEarly()) return null;
-    const box=document.createElement("div");
-    box.className="fx-lane-box";
-    strip.before(box); box.append(strip);
-    const scrollTimeline=!!(window.CSS && CSS.supports("animation-timeline: view()"));
-    const st={on:false,travel:0,start:0,cards:[]};
-    const cardsX=()=>{ const kids=[...strip.children], x0=kids.length?kids[0].offsetLeft:0; return kids.map(k=>k.offsetLeft-x0); };
-    function layout(){
-      const want=innerHeight>=LANE_MIN_H;
-      root.classList.toggle("fx-lane",want);
-      st.travel=want?Math.max(0,strip.offsetWidth-box.clientWidth):0;
-      if(want && st.travel<1){ root.classList.remove("fx-lane"); }
-      st.on=root.classList.contains("fx-lane");
-      root.style.setProperty("--fx-travel",st.travel.toFixed(1)+"px");
-      root.style.setProperty("--fx-run",(st.travel*LANE_K).toFixed(1)+"px");
-      if(!st.on){ strip.style.translate=""; box.classList.remove("fade-l","fade-r"); }
-      sync();
-    }
-    // where the lane is, from the scroll: 0…travel
-    const x=()=>Math.max(0,Math.min(st.travel,(scrollY-st.start)/LANE_K));
-    function sync(){
-      if(!st.on) return;
-      let y=0; for(let e=sec;e;e=e.offsetParent) y+=e.offsetTop;
-      st.start=Math.max(0,y-headElEarly().offsetHeight);
-      const v=x();
-      if(!scrollTimeline) strip.style.translate=`${(-v).toFixed(1)}px 0`;
-      box.classList.toggle("fade-l",v>2); box.classList.toggle("fade-r",v<st.travel-2);
-      arrows();
-    }
-    // where a card stops: its left edge just past the lane's left fade (fx.css: clamp(40px,8vw,96px)), so the
-    // card reads whole and the one before peeks out of the fade; the last stop is where the strip ends
-    const fadeW=()=>Math.min(96,Math.max(40,innerWidth*.08));
-    const stopOf=v=>v>0?Math.min(st.travel,Math.max(0,v-fadeW())):0;
-    function stops(){
-      if(!st.on) return null;
-      const xs=cardsX(), step=xs[1]||st.travel, out=[0];
-      for(const v of xs.map(stopOf)) if(v>0 && v<st.travel-step*LANE_MIN_STEP) out.push(v);
-      out.push(st.travel);
-      return out;
-    }
-    const yOf=v=>st.start+v*LANE_K;
-    const prevBtn=document.getElementById("stripPrev"), nextBtn=document.getElementById("stripNext");
-    function arrows(){
-      if(!st.on) return;
-      const v=x();
-      if(prevBtn) prevBtn.disabled=v<=1;
-      if(nextBtn) nextBtn.disabled=v>=st.travel-1;
-    }
-    // script.js sets the arrows from the strip's own scroll (nothing here): set them again right after it
-    const arrowsLater=()=>requestAnimationFrame(()=>requestAnimationFrame(arrows));
-    // the arrows step the page to the next / previous card stop (script.js's handlers are skipped meanwhile)
-    document.addEventListener("click",e=>{
-      const b=e.target.closest && e.target.closest("#stripPrev,#stripNext");
-      if(!b || !st.on) return;
-      e.preventDefault(); e.stopImmediatePropagation();
-      const v=x(), list=stops(), fwd=b.id==="stripNext";
-      const to=fwd?list.find(s=>s>v+2):[...list].reverse().find(s=>s<v-2);
-      if(to!==undefined) goTo(yOf(to));
-    },true);
-    // a card reached by Tab that isn't fully in view: bring it to its place (after the browser's own scroll
-    // to the focused element, which would otherwise stop the glide)
-    strip.addEventListener("focusin",e=>{
-      if(!st.on) return;
-      const card=e.target.closest && e.target.closest("#strip > *"); if(!card) return;
-      requestAnimationFrame(()=>requestAnimationFrame(()=>{
-        if(!st.on || !card.contains(document.activeElement)) return;
-        const r=card.getBoundingClientRect(), b=box.getBoundingClientRect();
-        if(r.left>=b.left-1 && r.right<=b.right+1 && Math.abs(scrollY-yOf(x()))<2 && scrollY>=st.start-1) return;
-        const xs=cardsX(), i=[...strip.children].indexOf(card);
-        goTo(yOf(stopOf(xs[i]||0)));
-      }));
-    });
-    // a sideways swipe over the lane scrolls the page as if it were vertical
-    let tx=0, ty=0, ty0=0, side=null;
-    box.addEventListener("touchstart",e=>{ tx=e.touches[0].clientX; ty=e.touches[0].clientY; ty0=scrollY; side=null; },{passive:true});
-    box.addEventListener("touchmove",e=>{
-      if(!st.on) return;
-      const dx=e.touches[0].clientX-tx, dy=e.touches[0].clientY-ty;
-      if(side===null && Math.abs(dx)+Math.abs(dy)>8) side=Math.abs(dx)>Math.abs(dy)*1.2;
-      if(!side || !e.cancelable) return;
-      e.preventDefault();
-      // within the lane: a sideways swipe never carries the page out of it
-      scrollTo({top:Math.max(st.start,Math.min(yOf(st.travel),ty0-dx*LANE_K)),behavior:"instant"});
-    },{passive:false});
-    box.addEventListener("touchend",()=>{ if(side) requestAnimationFrame(()=>settleNow()); side=null; },{passive:true});
+  /* ---------- projects carousel: the section holds the screen, each gesture shows the next project ---------- */
+  // On screens tall enough for the pages (not with reduced motion), #projects becomes a stage (html.fx-car-on, fx.css):
+  // the active project in the middle, its neighbours smaller and faded at the sides, a glow of its color behind.
+  // While the page rests on the section, the pages code below hands the wheel, keys and swipes over to it: a gesture
+  // moves exactly one project, the move always plays out (input meanwhile is dropped, not queued), and past the last
+  // (or before the first) project the page goes on. Elsewhere script.js's plain strip stays.
+  const CAR_MIN_H=560;                    // as PAGES_MIN_H below
+  const CAR_DUR=950;                      // ms per move (fx.css: --car-dur, with its easing)
+  const CAR_COOL=180;                     // ms of quiet after a move before the next gesture counts
+  const CAR_STEP=24, CAR_TOUCH=40;        // px of wheel (summed over a gesture) / of a swipe that make a step
+  const CAR_GAP=220;                      // ms without wheel events that starts a new gesture
+  const CAR_RELEASE=450;                  // ms after the carousel lets the page go when a fling isn't caught on it again
+  const CAR_STOP=500;                     // ms a touch fling caught on the projects is held there (its tail pulled back)
+  const CAR_MIN_D=3, CAR_DECAY=.92, CAR_HIST=12; // touchpad inertia: deltas under CAR_MIN_D, or a force falling under
+                                                 // CAR_DECAY of the one before, are the tail of a swipe, not a new one
+  const CAR_ROOM=600, CAR_K=[.5,1.25];    // height the 900×540 design card needs; its scale range (--k)
+  const CAR_NARROW=1000;                  // below this width the card stands upright: the picture on top, text below
+  const CAR_POS=[[1,1,0],[.8,.45,840],[.7,0,1480]]; // by distance from the middle: scale, opacity, x (design px · k)
+  const CAR_POS_N=[[1,1],[.88,.45],[.8,0]];         // upright: x is set so a neighbour shows CAR_PEEK of the screen
+  const CAR_PEEK=.06;
+  const CAR_EXTRA={crm:["crm_car","crm_deal"],arcade:["arc_game2","arc_lobby2"],drive:["drv_s2","drv_s3"]}; // the two smaller screens
+  const CAR_T={
+    ru:{sub:"Листайте вниз — проекты сменяются по одному.",next:"Скролл вниз — следующий проект",end:"Скролл вниз — дальше по странице",
+      prev_b:"Предыдущий проект",next_b:"Следующий проект",car:"карусель",slide:"слайд",
+      show:n=>`Показать проект «${n}»`,live:(i,n,t)=>`Проект ${i} из ${n}: ${t}`},
+    uz:{sub:"Pastga aylantiring — loyihalar birma-bir almashadi.",next:"Pastga aylantiring — keyingi loyiha",end:"Pastga aylantiring — sahifa davom etadi",
+      prev_b:"Oldingi loyiha",next_b:"Keyingi loyiha",car:"karusel",slide:"slayd",
+      show:n=>`«${n}» loyihasini koʻrsatish`,live:(i,n,t)=>`Loyiha ${i} / ${n}: ${t}`},
+    en:{sub:"Scroll down — projects change one at a time.",next:"Scroll down for the next project",end:"Scroll down to go on",
+      prev_b:"Previous project",next_b:"Next project",car:"carousel",slide:"slide",
+      show:n=>`Show project “${n}”`,live:(i,n,t)=>`Project ${i} of ${n}: ${t}`}
+  };
+  const car=(()=>{
+    const sec=document.getElementById("projects"), head=sec&&sec.querySelector(".sec-head");
+    if(REDUCED || !head || typeof PROJECTS==="undefined" || !PROJECTS.length) return null;
+    const N=PROJECTS.length, pad=n=>String(n).padStart(2,"0"), tt=()=>CAR_T[lang]||CAR_T.ru;
+    const svg=(d,w)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w||2}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+    const img=(k,cls)=>IMG[k]?`<img src="${IMG[k]}" alt="" loading="lazy" decoding="async"${cls||""}>`:"";
+    const card=(p,i)=>{
+      const ex=(CAR_EXTRA[p.id]||p.shots.map(s=>s[0]).filter(k=>k!==p.cover)).slice(0,2);
+      return `<div class="fx-car-card" data-p="${i}" data-id="${esc(p.id)}" role="group">
+        <div class="fx-car-in">
+          <div class="fx-car-vis">
+            <div class="fx-car-main"><div class="fx-car-bar" aria-hidden="true"><i></i><i></i><i></i><i></i></div><div class="pcover">${img(p.cover)}</div></div>
+            ${ex.map((k,j)=>`<div class="fx-car-x fx-car-x${j+1}" aria-hidden="true">${img(k)}</div>`).join("")}
+          </div>
+          <div class="fx-car-txt">
+            <div class="fx-car-g" style="--n:0"><span class="fx-car-num">${pad(i+1)}</span><span class="fx-car-of">/ ${pad(N)}</span></div>
+            <div class="fx-car-g" style="--n:1"><p class="fx-car-type"></p><h3></h3></div>
+            <div class="fx-car-g" style="--n:2"><p class="fx-car-short"></p><div class="chips">${p.stack.slice(0,3).map(s=>`<span class="chip">${esc(s)}</span>`).join("")}</div></div>
+            <div class="fx-car-g fx-car-foot" style="--n:3"><span class="fx-car-cnt"></span><button type="button" class="fx-car-go"><span></span>${svg('<path d="M5 12h14M13 6l6 6-6 6"/>',2.2)}</button></div>
+          </div>
+        </div>
+        <button type="button" class="fx-car-hit" tabindex="-1" hidden></button>
+      </div>`;
+    };
+    const stage=document.createElement("div");
+    stage.className="fx-car";
+    stage.innerHTML=`<div class="fx-car-glow" aria-hidden="true">${PROJECTS.map(p=>`<i data-id="${esc(p.id)}"></i>`).join("")}</div>
+      <div class="fx-car-track">${PROJECTS.map(card).join("")}</div>
+      <div class="fx-car-bot"><div class="fx-car-dots" aria-hidden="true">${PROJECTS.map(()=>"<i></i>").join("")}<b></b></div>
+        <p class="fx-car-hint" aria-hidden="true">${svg('<rect x="6.5" y="3" width="11" height="18" rx="5.5"/><path class="wh" d="M12 7v3"/>',1.7)}<span></span></p></div>
+      <p class="fx-sr" aria-live="polite"></p>`;
+    sec.append(stage);
+    // the head gets its own subtitle, counter and arrows (script.js keeps driving the strip's, which are hidden now)
+    const sub=document.createElement("p"); sub.className="fx-car-sub";
+    head.firstElementChild.append(sub);
+    const ctrl=document.createElement("div"); ctrl.className="fx-car-ctrl";
+    ctrl.innerHTML=`<span class="fx-car-count"><b>01</b> / ${pad(N)}</span>`
+      +`<button type="button" class="icon-btn" data-go="-1">${svg('<path d="m15 18-6-6 6-6"/>')}</button>`
+      +`<button type="button" class="icon-btn" data-go="1">${svg('<path d="m9 18 6-6-6-6"/>')}</button>`;
+    head.append(ctrl);
+    const track=stage.querySelector(".fx-car-track"), live=stage.querySelector(".fx-sr");
+    const cards=[...track.children].map((el,i)=>({el,i,p:PROJECTS[i],in:el.querySelector(".fx-car-in"),hit:el.querySelector(".fx-car-hit")}));
+    const glows=[...stage.querySelectorAll(".fx-car-glow i")], dots=[...stage.querySelectorAll(".fx-car-dots i")], pill=stage.querySelector(".fx-car-dots b");
+    const [prevB,nextB]=ctrl.querySelectorAll("button"), countB=ctrl.querySelector("b"), hintT=stage.querySelector(".fx-car-hint span");
 
-    addEventListener("scroll",sync,{passive:true});
-    let lt=0; const relayout=()=>{ clearTimeout(lt); lt=setTimeout(()=>{ layout(); arrowsLater(); },100); };
+    let on=false, index=0, k=1, narrow=false, lockUntil=0;
+    function fill(){
+      const t=T[lang], c=tt();
+      for(const {el,i,p,hit} of cards){
+        el.setAttribute("aria-roledescription",c.slide);
+        el.setAttribute("aria-label",`${i+1} ${t.of} ${N}: ${p.name[lang]}`);
+        el.querySelector(".fx-car-type").textContent=p.type[lang];
+        el.querySelector("h3").textContent=p.name[lang];
+        el.querySelector(".fx-car-short").textContent=p.short[lang];
+        el.querySelector(".fx-car-cnt").textContent=t.screens(p.shots.length);
+        el.querySelector(".fx-car-go span").textContent=t.open_project;
+        const cover=el.querySelector(".pcover img"); if(cover) cover.alt=p.name[lang];
+        hit.setAttribute("aria-label",c.show(p.name[lang]));
+      }
+      sub.textContent=c.sub;
+      prevB.setAttribute("aria-label",c.prev_b); nextB.setAttribute("aria-label",c.next_b);
+      if(on){ sec.setAttribute("aria-roledescription",c.car); sec.setAttribute("aria-label",t.projects_h); }
+      hintT.textContent=index===N-1?c.end:c.next;
+    }
+    // where a card at distance a from the middle goes: [scale, opacity, x]
+    function pos(a){
+      if(!narrow){ const [s,o,x]=CAR_POS[a]; return [s,o,x*k]; }
+      const w=cards[0].el.offsetWidth, x1=innerWidth*(.5-CAR_PEEK)+CAR_POS_N[1][0]*w/2;
+      const [s,o]=CAR_POS_N[a]; return [s,o,[0,x1,x1*1.9][a]];
+    }
+    function place(){
+      for(const c of cards){
+        const d=c.i-index, a=Math.min(2,Math.abs(d)), [s,o,x]=pos(a);
+        c.el.style.transform=`translate3d(${(Math.sign(d)*x).toFixed(1)}px,0,0) scale(${s})`;
+        c.el.style.opacity=o; c.el.style.zIndex=20-a*4;
+        c.el.style.setProperty("--d",Math.max(-2,Math.min(2,d)));
+        c.el.classList.toggle("on",!d); c.el.classList.toggle("side",a===1);
+        c.in.inert=!!d; c.hit.hidden=a!==1;
+      }
+      glows.forEach((g,i)=>g.classList.toggle("on",i===index));
+      // the bars: 14px each, the active one 40px (the pill), 8px apart
+      let x=0;
+      dots.forEach((b,i)=>{ b.style.transform=`translateX(${x}px)`; b.style.opacity=i===index?0:1; if(i===index) pill.style.transform=`translateX(${x}px)`; x+=(i===index?40:14)+8; });
+      pill.parentNode.style.width=x-8+"px";
+      stage.dataset.on=PROJECTS[index].id;
+      countB.textContent=pad(index+1);
+      prevB.disabled=index===0; nextB.disabled=index===N-1;
+      const c=tt(); hintT.textContent=index===N-1?c.end:c.next;
+    }
+    // jump without the move (the section is out of view, or the layout changed)
+    function now(f){ stage.classList.add("fx-car-now"); f(); void stage.offsetWidth; stage.classList.remove("fx-car-now"); }
+    // short of room: the description gets shorter, then the chips go, then the description (fx.css)
+    const TIGHT=["fx-car-t1","fx-car-t2","fx-car-t3","fx-car-t4"];
+    function fit(){
+      stage.classList.remove(...TIGHT);
+      const room=track.clientHeight-8;
+      const over=()=>cards.some(c=>narrow?c.el.offsetHeight>room:c.el.querySelector(".fx-car-txt").scrollHeight>c.el.offsetHeight+1);
+      for(const t of TIGHT){ if(!over()) break; stage.classList.add(t); }
+    }
+    function layout(){
+      on=innerHeight>=CAR_MIN_H;
+      root.classList.toggle("fx-car-on",on);
+      if(!on){ sec.removeAttribute("aria-roledescription"); sec.removeAttribute("aria-label"); return; }
+      narrow=innerWidth<CAR_NARROW;
+      stage.classList.toggle("fx-car-n",narrow);
+      k=Math.max(CAR_K[0],Math.min(CAR_K[1],innerWidth/1440,track.clientHeight/CAR_ROOM));
+      stage.style.setProperty("--k",k.toFixed(4));
+      fill(); fit(); now(place);
+    }
+    function go(i){
+      i=Math.max(0,Math.min(N-1,i));
+      if(i===index) return false;
+      index=i; lockUntil=performance.now()+CAR_DUR+CAR_COOL;
+      place();
+      const p=PROJECTS[i]; live.textContent=tt().live(i+1,N,p.name[lang]);
+      return true;
+    }
+    const locked=()=>performance.now()<lockUntil;
+    // wheel → a step (±1), or 0 while it's the same gesture, a move is playing, or a swipe's inertia is fading out
+    let hist=[], accum=0, lastT=0;
+    function intent(dy,t){
+      if(t-lastT>CAR_GAP){ hist=[]; accum=0; }
+      lastT=t;
+      hist.push(Math.abs(dy)); if(hist.length>CAR_HIST) hist.shift();
+      if(t<lockUntil){ accum=0; return 0; }
+      const n=hist.length;
+      if(Math.abs(dy)<CAR_MIN_D) return 0;
+      if(n>=6 && hist[n-1]+hist[n-2]+hist[n-3]<(hist[n-4]+hist[n-5]+hist[n-6])*CAR_DECAY) return 0;
+      if(accum && Math.sign(accum)!==Math.sign(dy)) accum=0;
+      accum+=dy;
+      if(Math.abs(accum)<CAR_STEP) return 0;
+      const d=Math.sign(accum); accum=0; return d;
+    }
+    const api={
+      get on(){ return on; }, get index(){ return index; }, count:N, locked, intent,
+      // a step: "moved", "locked" (a move is playing) or "edge" (nothing that way: the page should go on)
+      step(d){ if(locked()) return "locked"; return go(index+d)?"moved":"edge"; },
+      // out of view: the next visit from above starts at the first project, from below at the last
+      reset(i){ if(i!==index && !locked()){ index=i; now(place); } },
+      // show this one: moving if the section is in view, silently if not
+      show(i){ const r=sec.getBoundingClientRect(); if(r.bottom>0 && r.top<innerHeight){ lockUntil=0; go(i); } else api.reset(i); },
+      land(){}                            // the pages code (below) sets this: bring the page onto the section first
+    };
+    const move=i=>{ if(locked() || i<0 || i>=N || i===index) return; api.land(); go(i); };
+    ctrl.addEventListener("click",e=>{ const b=e.target.closest("[data-go]"); if(b) move(index+ +b.dataset.go); });
+    track.addEventListener("click",e=>{
+      const hit=e.target.closest(".fx-car-hit");
+      if(hit){ move(+hit.parentNode.dataset.p); return; }
+      const open=e.target.closest(".fx-car-go,.fx-car-vis"), c=open&&open.closest(".fx-car-card");
+      if(c && +c.dataset.p===index) openProject(index,c.querySelector(".fx-car-go"));
+    });
+    // the language: the texts fade out and back in with the rest of the page (script.js fades the head)
+    let outs=[];
+    const texts=()=>[...stage.querySelectorAll(".fx-car-txt,.fx-car-hint")];
+    document.addEventListener("vz:langout",()=>{
+      if(!on) return;
+      outs.forEach(a=>a.cancel());
+      outs=texts().map(el=>el.animate([{opacity:1,filter:"blur(0px)"},{opacity:0,filter:"blur(4px)"}],{duration:180,easing:"cubic-bezier(.4,0,1,1)",fill:"forwards"}));
+    });
+    document.addEventListener("vz:lang",()=>{
+      layout();
+      if(!outs.length) return;
+      outs.forEach(a=>a.cancel()); outs=[];
+      texts().forEach(el=>el.animate([{opacity:0,filter:"blur(4px)",transform:"translateY(5px)"},{opacity:1,filter:"blur(0px)",transform:"translateY(0)"}],{duration:380,easing:"cubic-bezier(.22,.61,.36,1)"}));
+    });
+    // the screens load after the hero intro, once the section is near (all of them: a card off to the side is clipped,
+    // and lazy loading alone would only fetch its screens as it slides in); the cards rise in the first time it's in view
+    if("IntersectionObserver" in window){
+      const near=new IntersectionObserver(es=>{ if(es.some(e=>e.isIntersecting)){ near.disconnect(); stage.querySelectorAll("img").forEach(im=>{ if(!narrow || !im.closest(".fx-car-x")) im.loading="eager"; }); } },{rootMargin:"100% 0px"});
+      introDone.then(()=>near.observe(sec));
+      const seen=new IntersectionObserver(es=>{ if(es.some(e=>e.isIntersecting)){ seen.disconnect(); stage.classList.add("fx-car-shown"); } },{threshold:.25});
+      seen.observe(sec);
+    } else stage.classList.add("fx-car-shown");
+    let lt=0; const relayout=()=>{ clearTimeout(lt); lt=setTimeout(layout,100); };
     addEventListener("resize",relayout,{passive:true});
-    document.addEventListener("vz:lang",()=>{ layout(); arrowsLater(); });
-    if(document.fonts && document.fonts.ready) document.fonts.ready.then(()=>{ layout(); arrowsLater(); });
-    if("ResizeObserver" in window) new ResizeObserver(relayout).observe(box);
-    layout(); arrowsLater();
-    return {stops,yOf,get on(){ return st.on; },
-      // the strip is moving with the scroll right now (pointer effects re-measure the cards then)
-      moving:()=>st.on && scrollY>st.start-2 && scrollY<yOf(st.travel)+2};
+    if(document.fonts && document.fonts.ready) document.fonts.ready.then(layout);
+    if("ResizeObserver" in window) new ResizeObserver(relayout).observe(sec);
+    layout();
+    return api;
   })();
-  function headElEarly(){ return document.querySelector(".top"); }
   let settleNow=()=>{};
 
   /* ---------- pages: each section a screen, and a magnet that settles the scroll on them ---------- */
@@ -599,11 +702,10 @@
     let wheelAt=0, wheelLock=false;
     // page edges: where each page starts and, if taller than the screen, where it ends (the last one ends the document)
     function stops(){
-      const max=maxScroll(), vh=innerHeight, ls=lane && lane.stops();
+      const max=maxScroll(), vh=innerHeight;
       return pageEls.map((el,i)=>{
         const s=pageStart(el), e=i===pageEls.length-1?max:Math.min(max,Math.max(s,docTop(el)+el.offsetHeight-vh));
-        // the projects lane is long but not free: it stops at every card
-        return el===projEl && ls?{s,e,pts:ls.map(lane.yOf)}:{s,e};
+        return {s,e};
       });
     }
     let settleT=0;
@@ -620,8 +722,8 @@
     // the page edge a scroll resting at y should settle on, or null where it may rest as it is
     function snapFor(y){
       const pages=stops();
-      if(pages.some(p=>!p.pts && y>p.s+1 && y<p.e-1)) return null; // inside a long page: read freely
-      const pts=[...new Set(pages.flatMap(p=>[p.s,p.e,...(p.pts||[])]).map(Math.round))].sort((a,b)=>a-b);
+      if(pages.some(p=>y>p.s+1 && y<p.e-1)) return null; // inside a long page: read freely
+      const pts=[...new Set(pages.flatMap(p=>[p.s,p.e]).map(Math.round))].sort((a,b)=>a-b);
       let a=null, b=null;
       for(const p of pts){ if(p<=y+.5) a=p; if(p>=y-.5 && b===null) b=p; }
       if(a===null || b===null || Math.abs(y-a)<1 || Math.abs(y-b)<1) return null;
@@ -638,8 +740,10 @@
     if(hasEnd) addEventListener("scrollend",settle);
     { let t=0; addEventListener("scroll",()=>{ clearTimeout(t); t=setTimeout(settle,hasEnd?SETTLE_SAFE:SETTLE); },{passive:true}); }
 
+    // a glide the rest of the gesture can't stop (it's swallowed, trackpad inertia too)
+    const gateTo=(y,dur)=>{ glideTo(y,dur,true); wheelLock=true; };
     // hero ⇄ projects
-    const gate=y=>{ glideTo(y,GATE_DUR,true); wheelLock=true; };
+    const gate=y=>gateTo(y,GATE_DUR);
     // where a gesture going this way from here should be gated to, if anywhere
     const gateTarget=down=>{
       if(busy() || !heroFits()) return null;
@@ -685,43 +789,109 @@
         if(to!==null) m.target=to;
       },WHEEL_GAP);
     }
+    // The projects carousel (above): while the page rests on it, gestures move the projects instead of the page.
+    // Past its ends the page goes on to the neighbouring page, a glide the rest of the gesture can't stop.
+    const pinned=()=>!!(car && car.on) && !busy() && Math.abs(scrollY-pageStart(projEl))<2;
+    let carFree=0;                        // until then a fling across the projects isn't caught on them
+    function carGesture(d){
+      stopGlide(); stopSmooth();
+      const ps=pageStart(projEl);
+      if(Math.abs(scrollY-ps)>=.5) scrollTo({top:ps,behavior:"instant"});
+      if(car.step(d)!=="edge") return;
+      carFree=performance.now()+CAR_RELEASE;
+      const pages=stops(), i=pageEls.indexOf(projEl), to=d>0?pages[i+1]:pages[i-1];
+      if(!to) return;
+      if(d<0 && heroFits()) gate(0); else gateTo(d>0?to.s:to.e);
+    }
+    if(car) car.land=()=>{ if(!pinned() && !busy()) glideTo(pageStart(projEl)); };
+    // a flight across the projects (the wheel's, or a native one: touch momentum, keys) stops on them; not a scroll the
+    // page makes by itself (to a #hash at load, find in page)
+    const crosses=(from,to,ps)=>(from<ps-1 && to>ps-1) || (from>ps+1 && to<ps+1);
+    let carY=scrollY, carAt=false, carHold=0, carUnhold=0;
+    addEventListener("scroll",()=>{
+      if(!car || !car.on) return;
+      const y=scrollY, ps=pageStart(projEl), now=performance.now();
+      const free=!busy() && !glideNow && !smoothNow && !touching && !dragging;
+      if(free && (lastInput==="touch" || lastInput==="key") && now>carFree && now>quietUntil
+        && Math.abs(y-carY)<innerHeight && (crosses(carY,y,ps) || (now<carHold && Math.abs(y-ps)>1))){
+        // a touch fling goes on after a programmatic scroll: taking the overflow away for a moment ends it, and
+        // for CAR_STOP whatever is left of it is pulled back
+        if(lastInput==="touch"){
+          if(now>=carHold) carHold=now+CAR_STOP;
+          root.style.overflow="hidden"; clearTimeout(carUnhold); carUnhold=setTimeout(()=>{ root.style.overflow=""; },120);
+        }
+        scrollTo({top:ps,behavior:"instant"});
+      }
+      carY=scrollY; carAt=Math.abs(carY-ps)<2;
+      // out of view: the next visit from above starts at the first project, from below at the last
+      const r=projEl.getBoundingClientRect();
+      if(r.top>=innerHeight-1) car.reset(0); else if(r.bottom<=headH()+1) car.reset(car.count-1);
+    },{passive:true});
+    // a resize while resting on the projects keeps it there (page edges move under the scroll position)
+    addEventListener("resize",()=>{ if(carAt) requestAnimationFrame(()=>{ if(car.on && !busy()) scrollTo({top:pageStart(projEl),behavior:"instant"}); }); },{passive:true});
+
     addEventListener("wheel",e=>{
-      if(e.ctrlKey || Math.abs(e.deltaX)>Math.abs(e.deltaY)) return;
+      if(e.ctrlKey) return;
+      const side=Math.abs(e.deltaX)>Math.abs(e.deltaY);
+      if(side && !pinned()) return;
       lastInput="wheel";
       const now=performance.now(), fresh=now-wheelAt>WHEEL_GAP; wheelAt=now;
       if(glideNow && glideNow.gate){ e.preventDefault(); return; }
       if(wheelLock){ if(fresh) wheelLock=false; else { e.preventDefault(); return; } }
+      if(pinned()){
+        e.preventDefault();
+        const d=car.intent((side?e.deltaX:e.deltaY)*(e.deltaMode===1?16:e.deltaMode===2?innerHeight:1),now);
+        if(d) carGesture(d);
+        return;
+      }
       stopGlide();
       const dy=e.deltaY*(e.deltaMode===1?40:e.deltaMode===2?innerHeight:1);
       if(!busy()){
         const down=dy>0, to=gateTarget(down);
         if(to!==null){ e.preventDefault(); stopSmooth(); gate(to); return; }
-        // a long flick upward doesn't fly past the projects into the hero: it stops at the projects first
-        if(!down && heroFits()){
+        // a long spin doesn't fly past the projects: it stops on them first
+        if(car && car.on){
           const ps=pageStart(projEl), from=smoothNow?smoothNow.target:scrollY;
-          if(scrollY>ps+1 && from+dy<ps){ e.preventDefault(); stopSmooth(); gate(ps); return; }
+          if(crosses(scrollY,from+dy,ps)){ e.preventDefault(); stopSmooth(); gateTo(ps); return; }
         }
       }
       if(smoothable(e)){ e.preventDefault(); smoothBy(dy); }
     },{passive:false});
     const KEYS={ArrowDown:1,PageDown:1," ":1,ArrowUp:-1,PageUp:-1};
+    const CAR_KEYS={...KEYS,ArrowRight:1,ArrowLeft:-1};
     addEventListener("keydown",e=>{
       lastInput="key";
       if(e.key==="Tab") quietUntil=performance.now()+1000;   // focus moves scroll the page; leave them be
+      if(e.key==="Home" || e.key==="End") quietUntil=performance.now()+1500;
       if(glideNow && !glideNow.gate) stopGlide();
       stopSmooth();
-      const k=KEYS[e.key]; if(!k || e.altKey || e.ctrlKey || e.metaKey) return;
+      const k=CAR_KEYS[e.key]; if(!k || e.altKey || e.ctrlKey || e.metaKey) return;
       const t=e.target;
       if(t && t.closest && t.closest("input,textarea,select,[contenteditable],dialog")) return;
       if(e.key===" " && t && t.closest && t.closest("a,button,[role=button]")) return;
       if(glideNow && glideNow.gate){ e.preventDefault(); return; }
-      const to=gateTarget(e.key===" "?!e.shiftKey:k>0);
+      const d=e.key===" "&&e.shiftKey?-1:k;
+      if(pinned()){ e.preventDefault(); carGesture(d); return; }
+      if(!KEYS[e.key]) return;                             // ← → are the carousel's only
+      const to=gateTarget(d>0);
       if(to!==null){ e.preventDefault(); gate(to); }
     });
-    let touchY=0;
-    addEventListener("touchstart",e=>{ touching=true; lastInput="touch"; touchY=e.touches[0].clientY; stopSmooth(); if(!(glideNow && glideNow.gate)) stopGlide(); },{passive:true});
+    let touchY=0, carTouch=null;
+    addEventListener("touchstart",e=>{
+      touching=true; lastInput="touch"; touchY=e.touches[0].clientY; stopSmooth(); if(!(glideNow && glideNow.gate)) stopGlide();
+      carTouch=pinned() && e.touches.length===1?{x:e.touches[0].clientX,y:touchY,done:false}:null;
+    },{passive:true});
     addEventListener("touchmove",e=>{
       if(glideNow && glideNow.gate){ if(e.cancelable) e.preventDefault(); return; }
+      // on the carousel the page stays; a swipe (either way) of CAR_TOUCH moves one project, once per touch
+      if(carTouch){
+        if(e.touches.length!==1){ carTouch=null; return; }
+        if(e.cancelable) e.preventDefault();
+        if(carTouch.done) return;
+        const dx=carTouch.x-e.touches[0].clientX, dy=carTouch.y-e.touches[0].clientY, d=Math.abs(dy)>=Math.abs(dx)?dy:dx;
+        if(Math.abs(d)>=CAR_TOUCH){ carTouch.done=true; carGesture(Math.sign(d)); }
+        return;
+      }
       const dy=touchY-e.touches[0].clientY;
       if(Math.abs(dy)<8 || !e.cancelable) return;
       const to=gateTarget(dy>0);
@@ -748,6 +918,7 @@
       if(!el) return;
       e.preventDefault();
       glideTo(pageStart(el));
+      if(el===projEl && car && car.on) car.show(0);       // the projects always open on the first one
       if(e.detail===0){ el.setAttribute("tabindex","-1"); el.focus({preventScroll:true}); }
     });
   }
@@ -831,7 +1002,8 @@
     let vt=null, kind="";
     const named=(el,n)=>{ if(el) el.style.viewTransitionName=n||""; };
     const inView=el=>{ const r=el.getBoundingClientRect(); return r.width>0 && r.bottom>0 && r.top<innerHeight && r.right>0 && r.left<innerWidth; };
-    const coverOf=pi=>document.querySelector(`#strip a.pcard[data-p="${pi}"] .pcover`);
+    // the cover in the carousel, or on the plain strip where that's off
+    const coverOf=pi=>document.querySelector(car&&car.on?`.fx-car-card[data-p="${pi}"] .pcover`:`#strip a.pcard[data-p="${pi}"] .pcover`);
     const ready=img=>Promise.race([img.decode().catch(()=>{}),new Promise(r=>setTimeout(r,MORPH_WAIT))]);
     const run=(k,update,cleanup)=>{
       kind=k; root.classList.add("fx-vt");
@@ -840,7 +1012,7 @@
     };
     window.fxMorph={
       open(pi,opener){
-        const cover=opener&&opener.querySelector(".pcover");
+        const cover=opener&&(opener.querySelector(".pcover")||coverOf(pi));
         if(pd.open || vt || !cover || !inView(cover)) return false;
         // the first frame has to be decoded before the snapshot, or the morph would land on an empty box
         const im=new Image(); im.src=IMG[PROJECTS[pi].shots[0][0]];
@@ -865,7 +1037,7 @@
         const cover=coverOf(cur.p), shot=pd.querySelectorAll("#pdTrack img")[cur.i];
         if(!cover || !shot || !inView(cover) || !inView(shot)) return false;
         // the strip may have been re-rendered (language switch) while the dialog was open
-        cur.opener=cover.closest("a");
+        cur.opener=cover.closest("a")||cover.closest(".fx-car-card").querySelector(".fx-car-go");
         named(shot,"fx-shot"); named(pd,"fx-pd");
         run("close",()=>{ named(shot); named(pd); finishClose(); named(cover,"fx-shot"); },()=>named(cover));
         return true;
@@ -944,8 +1116,6 @@
   if(strip) strip.addEventListener("scroll",()=>{ if(seen){ measure(); moved=true; wake(); } else markDirty(); },{passive:true});
   addEventListener("scroll",()=>{
     sX=scrollX; sY=scrollY; moved=true;
-    // the projects lane moves its cards with the page scroll, so their cached boxes go stale
-    if(lane && lane.moving()){ if(seen) measure(); else markDirty(); }
     wake();
   },{passive:true});
 
