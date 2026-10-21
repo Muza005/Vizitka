@@ -14,8 +14,8 @@
   const DEPTH=[[".fx-gl",-16],[".bc-city",14],[".bc-name",34],[".bc-role",22],[".bc-lines",18],[".back svg",22],[".back > div",14]];
   const SHADOW_H=110;                     // how far below the card the "table" is, px
   // Scroll reveal: observed blocks, and the pieces inside them that rise in turn
-  const RV_BLOCKS=".sec-head,#strip,.price-group,.terms,.steps-title,#steps,.contact > div:first-child,.clist";
-  const RV_ITEMS=".sec-head p,#strip > *,.price-group > *,.terms > *,#steps > li,.contact .lead,.contact .tg,.clist > li";
+  const RV_BLOCKS=".sec-head,#strip,.price-group,.terms,.steps-title,.contact > div:first-child,.clist";
+  const RV_ITEMS=".sec-head p,#strip > *,.price-group > *,.terms > *,.contact .lead,.contact .tg,.clist > li";
   const RV_HEADS=".sec-head h2,.steps-title,.contact h2";
   const RV_STEP=70, RV_WORD=55, RV_AFTER_WORDS=140, RV_MAX_I=8, RV_DUR=900; // ms
   // Price count-up: a price counts from zero in steps of 0.1 (millions), 10 (thousands) or 1 (percent),
@@ -343,14 +343,56 @@
     addEventListener("resize",()=>document.querySelectorAll(".fx-count").forEach(align),{passive:true});
   }
 
-  // Steps line: CSS scroll-driven animation where supported, otherwise --fx-p from scroll
+  /* ---------- steps timeline: the line draws in time, each circle lights up as it passes ---------- */
+  // When the steps are well in view, the accent line draws over TL_DUR (eased in and out); each circle is lit
+  // the moment the line's head reaches its centre (measured, so the vertical phone layout with uneven steps keeps
+  // in sync): for DOT_GLOW_MS it fills, swells to DOT_SCALE and sends off a halo to HALO_SCALE, and its text rises
+  // in. It plays again on every return, once the steps have been out of view (reset unseen).
+  const TL_DUR=3200, DOT_GLOW_MS=1000, DOT_SCALE=1.12, HALO_SCALE=2.4, TL_SEEN=.6;
   const steps=document.getElementById("steps");
-  if(io && steps && !(window.CSS && CSS.supports("animation-timeline: view()"))){
-    let raf=0;
-    const upd=()=>{ raf=0; const r=steps.getBoundingClientRect(), vh=innerHeight;
-      steps.style.setProperty("--fx-p",Math.max(0,Math.min(1,(vh*.88-r.top)/(vh*.5))).toFixed(3)); };
-    addEventListener("scroll",()=>{ if(!raf) raf=requestAnimationFrame(upd); },{passive:true});
-    upd();
+  if(io && steps && Element.prototype.animate){
+    root.classList.add("fx-tl");
+    const EASE="cubic-bezier(.37,0,.63,1)";                      // sine in-out, as easeAt() below
+    const easeAt=y=>Math.acos(1-2*y)/Math.PI;                    // when (share of TL_DUR) the eased line reaches y
+    const vertical=()=>matchMedia("(max-width:900px)").matches;
+    let anims=[], timers=[], played=false;
+    function reset(){
+      anims.forEach(a=>a.cancel()); anims=[]; timers.forEach(clearTimeout); timers=[];
+      steps.querySelectorAll("li").forEach(li=>li.classList.remove("fx-on"));
+      played=false;
+    }
+    const halo=li=>{ if(li.querySelector(".fx-halo")) return; const h=document.createElement("i"); h.className="fx-halo"; h.setAttribute("aria-hidden","true"); li.prepend(h); };
+    function play(){
+      reset(); played=true;
+      const v=vertical(), lis=[...steps.children], L=(v?steps.offsetHeight:steps.offsetWidth)||1;
+      anims.push(steps.animate({transform:v?["scaleY(0)","scaleY(1)"]:["scaleX(0)","scaleX(1)"]},
+        {duration:TL_DUR,easing:EASE,fill:"forwards",pseudoElement:"::before"}));
+      for(const li of lis){
+        halo(li);
+        const at=TL_DUR*easeAt(Math.max(0,Math.min(1,(v?li.offsetTop+12:li.offsetLeft+14)/L)));
+        timers.push(setTimeout(()=>li.classList.add("fx-on"),at));
+        const o={duration:DOT_GLOW_MS,delay:at,easing:"cubic-bezier(.33,1,.68,1)"};
+        const swell=[{transform:"scale(1)"},{transform:`scale(${DOT_SCALE})`,offset:.3},{transform:"scale(1)"}];
+        anims.push(li.animate(swell,{...o,pseudoElement:"::before"}));
+        anims.push(li.animate([{opacity:0,transform:"scale(1)"},{opacity:1,transform:`scale(${DOT_SCALE})`,offset:.3},{opacity:1,offset:.6,transform:"scale(1.04)"},{opacity:0,transform:"scale(1)"}],{...o,pseudoElement:"::after"}));
+        anims.push(li.querySelector(".fx-halo").animate([{opacity:0,transform:"scale(.8)"},{opacity:.7,offset:.2},{opacity:0,transform:`scale(${HALO_SCALE})`}],o));
+      }
+    }
+    // a language switch re-renders the steps: if they have played, the new ones are simply there
+    document.addEventListener("vz:lang",()=>{ if(played) steps.querySelectorAll("li").forEach(li=>{ halo(li); li.classList.add("fx-on"); }); });
+    let tlObs=null;
+    const watch=()=>{
+      if(tlObs) tlObs.disconnect();
+      // a list taller than the screen can't be 60 % in view: then most of what fits is enough
+      const thr=Math.min(TL_SEEN,innerHeight*.8/Math.max(1,steps.offsetHeight));
+      tlObs=new IntersectionObserver(es=>es.forEach(e=>{
+        if(e.isIntersecting && e.intersectionRatio>=thr-.001){ if(!played) play(); }
+        else if(!e.isIntersecting && played) reset();
+      }),{threshold:[0,thr]});
+      tlObs.observe(steps);
+    };
+    watch();
+    let wt=0; addEventListener("resize",()=>{ clearTimeout(wt); wt=setTimeout(watch,200); },{passive:true});
   }
 
   /* ---------- projects lane: scrolling down moves the projects sideways ---------- */
