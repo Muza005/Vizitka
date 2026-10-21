@@ -57,19 +57,23 @@
   // and jolt the card and every section below it. From the first switch on, each block reserves the height of its
   // tallest language: the spare room goes above the title (it sits on the lead) and below the lead and the buttons,
   // so their tops stay put too. Not before it: at load the scripts can run after the first paint, and reserving then
-  // would itself shift the page. If that first reserve grows the hero, the card and everything below glide to their
-  // new places (FLIP on translate) while the text fades back in.
+  // would itself shift the page.
+  // Whatever still moves on a switch (the first reserve growing the hero, prices or terms rewrapping above what you
+  // look at) glides there: the card, every section and the footer start where they were on screen and ease into
+  // their new places (FLIP on translate) while the text fades back in.
   // Afterwards a ResizeObserver redoes it whenever a block's text box changes (width, the web font): it runs after
   // layout but before paint, and the reserve is padding, outside the observed content box, so it doesn't loop.
   const HOLD=[[".hero h1","paddingTop"],[".hero .lead","paddingBottom"],[".hero .actions","paddingBottom"]];
-  const HOLD_MOVERS=".hero-card, .hero ~ section, body > footer", HOLD_DUR=380; // ms, as the text's fade-in in script.js
+  const HOLD_MOVERS=".hero-card, .hero ~ section, body > footer";
+  const GLIDE_DUR=650, GLIDE_EASE="cubic-bezier(.22,1,.36,1)"; // a long, soft landing
   const holdItems=typeof T==="undefined"?[]:HOLD.map(([sel,prop])=>({el:document.querySelector(sel),prop})).filter(x=>x.el);
   function holdHero(){
     const items=holdItems;
     if(!items.length) return;
     const langs=Object.keys(T);
-    for(const it of items) it.el.style[it.prop]="";
-    // every language in a hidden copy of the block, at the block's width; all appended first, then read once
+    // every language in a hidden copy of the block, at the block's width; all appended first, then read once.
+    // The block keeps its current reserve meanwhile: dropping it, even for a moment, would let the page shrink
+    // and clamp the scroll position at the bottom
     for(const it of items){
       const width=it.el.getBoundingClientRect().width;
       it.copies=langs.map(l=>{
@@ -94,20 +98,46 @@
   }
   if(holdItems.length){
     let holding=false, before=null;
-    // layout position in the document, transforms (a running glide) left out
-    const layoutTop=el=>{ let y=0; for(let e=el;e;e=e.offsetParent) y+=e.offsetTop; return y; };
-    const movers=()=>[...document.querySelectorAll(HOLD_MOVERS)];
-    // a switch starts with a click on a language; script.js fades the text out first, so nothing has moved yet
+    // on-screen position without transforms (a running glide left out)
+    const layoutTop=el=>{ let y=0; for(let e=el;e;e=e.offsetParent) y+=e.offsetTop; return y-scrollY; };
+    const glides=new Map();
+    // a switch starts with a click on a language; script.js fades the text out first, so nothing has moved yet.
+    // Where it was is where it is seen, a glide still running included. The browser's own scroll anchoring would
+    // move the page a frame later, after the glides are set up, so it's off for the switch and done here instead:
+    // the block under the upper part of the screen keeps its place exactly, the rest glides around it
+    let anchor=null;
     document.addEventListener("click",e=>{
-      if(e.target.closest && e.target.closest(".langs button")) before=movers().map(el=>[el,layoutTop(el)]);
+      if(!(e.target.closest && e.target.closest(".langs button"))) return;
+      before=[...document.querySelectorAll(HOLD_MOVERS)].map(el=>[el,el.getBoundingClientRect().top]);
+      const look=innerHeight*.3;
+      anchor=null;
+      for(const el of document.querySelectorAll(".hero, .hero ~ section, body > footer")){
+        const r=el.getBoundingClientRect();
+        if(r.top<=look && r.bottom>look){ anchor=[el,r.top]; break; }
+      }
+      root.style.overflowAnchor=document.body.style.overflowAnchor="none";
     },true);
+    const glide=from=>{
+      for(const [el,y] of from){
+        const to=layoutTop(el), d=y-to, h=el.offsetHeight;
+        const prev=glides.get(el); if(prev) prev.cancel();
+        // only what can be seen on the way
+        if(Math.abs(d)<.5 || Math.max(y,to)+h<0 || Math.min(y,to)>innerHeight) continue;
+        const a=el.animate({translate:[`0 ${d.toFixed(1)}px`,"0 0"]},{duration:GLIDE_DUR,easing:GLIDE_EASE});
+        glides.set(el,a); a.onfinish=()=>glides.delete(el);
+      }
+    };
     document.addEventListener("vz:lang",()=>{
       holding=true; holdHero();
-      if(before && !REDUCED) for(const [el,y] of before){
-        const d=y-layoutTop(el);
-        if(Math.abs(d)>.5) el.animate({translate:[`0 ${d.toFixed(1)}px`,"0 0"]},{duration:HOLD_DUR,easing:"cubic-bezier(.22,.61,.36,1)"});
+      if(before){
+        if(anchor){
+          const shift=layoutTop(anchor[0])-anchor[1];
+          if(Math.abs(shift)>.5) scrollTo({top:scrollY+shift,behavior:"instant"});
+        }
+        if(!REDUCED) glide(before);
+        requestAnimationFrame(()=>requestAnimationFrame(()=>{ root.style.overflowAnchor=document.body.style.overflowAnchor=""; }));
       }
-      before=null;
+      before=anchor=null;
     });
     if("ResizeObserver" in window){
       const ro=new ResizeObserver(()=>{ if(holding) holdHero(); });

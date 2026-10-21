@@ -210,6 +210,10 @@ html.fx-vt::view-transition-new(root){animation:fxVtFade .4s var(--ease) both}
    (html.fx-intro-on); if it never runs, the failsafe shows everything after 3 s. Reduced motion: no intro at all. */
 @media (prefers-reduced-motion: no-preference){
   html:not(.fx-intro-on) .hero :is(h1,.lead,.actions,.hero-card){opacity:0;animation:fxIntroSafe .4s 3s forwards}
+  /* the sections below wait too: with a saved UZ/EN, script.js may switch the language after the first paint and
+     move them; hidden, they just fade in where they belong */
+  html:not(.fx-intro-on) :is(.hero ~ section,body > footer){opacity:0;animation:fxIntroSafe .4s 3s forwards}
+  .fx-base :is(.hero ~ section,body > footer){transition:opacity .5s var(--ease)}
 }
 @keyframes fxIntroSafe{to{opacity:1}}
 /* typing: every character is in place from the start (no layout change), each one just turns visible */
