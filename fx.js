@@ -188,14 +188,19 @@
   // the card rises and fades in, the auras fade in. No scale: script.js sizes the guilloche from the card's on-screen
   // box, and a scaled card would make it redraw (a long task) at a lower resolution
   const CARD_DUR=700, AURA_DUR=1000;
+  // the card also turns in from a slight angle, and a light runs over it while the foil shimmers (#tilt's --gx/--gy,
+  // --glow and --sx, the same the pointer drives), so it's alive from the first moment
+  const CARD_TURN=1700, SWEEP_AT=500, SWEEP_DUR=2200; // (the band of light: fx.css, .fx-sheen)
   const BTN_AT=.6, BTN_DUR=450, BTN_STEP=90; // buttons start once this share of the title is typed, one after another
-  let introDone=Promise.resolve();
+  let introDone=Promise.resolve(), typed=null; // typed: the typing is over (caret still blinking), when the intro plays
   {
     const h1=heroEl && heroEl.querySelector("h1"), lead=heroEl && heroEl.querySelector(".lead");
     const actions=heroEl && heroEl.querySelector(".actions"), heroCard=heroEl && heroEl.querySelector(".hero-card");
     const nav=performance.getEntriesByType && performance.getEntriesByType("navigation")[0];
     const play=!REDUCED && h1 && lead && actions && heroCard && !location.hash && scrollY<1
       && !(nav && nav.type==="back_forward") && getComputedStyle(h1).opacity==="0";
+    let typedRes=()=>{};
+    if(play) typed=new Promise(r=>{ typedRes=r; });
     if(play) introDone=new Promise(resolve=>{
       const split=el=>{
         const text=el.textContent, sr=document.createElement("span"), vis=document.createElement("span");
@@ -225,10 +230,16 @@
       const btnAt=title.times[Math.floor(title.times.length*BTN_AT)]||INTRO_DELAY;
       const anims=[
         heroCard.animate({opacity:[0,1],translate:["0 16px","0 0"]},{duration:CARD_DUR,delay:INTRO_DELAY,easing:"cubic-bezier(.33,1,.68,1)",fill:"backwards"}),
+        heroCard.animate({transform:["perspective(1400px) rotateX(11deg) rotateY(-19deg)","perspective(1400px) rotateX(0deg) rotateY(0deg)"]},
+          {duration:CARD_TURN,delay:INTRO_DELAY,easing:"cubic-bezier(.3,.7,.2,1)",fill:"backwards"}),
+        ...(typeof tilt!=="undefined" && tilt?[tilt.animate([
+          {"--gx":"-15%","--gy":"0%","--glow":0,"--sx":10},
+          {"--gx":"55%","--gy":"45%","--glow":2.2,"--sx":55,offset:.5},
+          {"--gx":"120%","--gy":"95%","--glow":0,"--sx":90}],{duration:SWEEP_DUR,delay:SWEEP_AT,easing:"cubic-bezier(.45,0,.25,1)"})]:[]),
         aura.animate({opacity:[0,1]},{duration:AURA_DUR,easing:"linear",fill:"backwards"}),
         ...[...actions.children].map((b,i)=>b.animate({opacity:[0,1],translate:["0 12px","0 0"]},{duration:BTN_DUR,delay:btnAt+i*BTN_STEP,easing:ease,fill:"backwards"}))
       ];
-      root.classList.add("fx-intro-on");
+      root.classList.add("fx-intro-on","fx-sheen");
 
       let t0=0, raf=0, over=false, endAt=0;
       const place=(t,s)=>{
@@ -244,7 +255,7 @@
         type(title,t); type(body,t);
         if(t<leadStart) place(title,title.chars[title.n-1]);
         else if(body.n<body.chars.length) place(body,body.chars[body.n-1]);
-        else if(!endAt){ place(body,body.chars[body.n-1]); caret.classList.add("blink"); endAt=t; }
+        else if(!endAt){ place(body,body.chars[body.n-1]); caret.classList.add("blink"); endAt=t; typedRes(); }
         if(endAt && t-endAt>=CARET_HOLD){ caret.classList.add("out"); setTimeout(finish,220); return; }
         raf=requestAnimationFrame(tick);
       };
@@ -257,7 +268,8 @@
         caret.remove();
         for(const t of [title,body]) if(t.vis.isConnected){ t.el.textContent=t.text; t.el.classList.remove("fx-type"); }
         anims.forEach(a=>a.finish());
-        resolve();
+        root.classList.remove("fx-sheen");
+        typedRes(); resolve();
       }
       const onScroll=()=>{ if(scrollY>1) finish(); };
       for(const ev of ["pointerdown","keydown","wheel","touchstart"]) addEventListener(ev,finish,{capture:true,passive:true});
@@ -444,8 +456,9 @@
   const CAR_POS_N=[[1,1],[.88,.45],[.8,0]];         // upright: x is set so a neighbour shows CAR_PEEK of the screen
   const CAR_PEEK=.06;
   const CAR_EXTRA={crm:["crm_car","crm_deal"],arcade:["arc_game2","arc_lobby2"],drive:["drv_s2","drv_s3"]}; // the two smaller screens
-  // the main screen as a short looping video (webm, mp4 fallback), with a still shown until it plays
-  const CAR_VIDEO={crm:["images/autodrive-demo-loop","crm_dash"],arcade:["images/arcade-hub-gameplay-loop","arc_game2"],drive:["images/driving-demo-loop","drv_s1"]};
+  // The main screen is the project's moving demo (script.js: the shot marked as one, an animated AVIF); until it runs, and
+  // where it can't, a still: the cover, or this one
+  const CAR_STILL={arcade:"arc_game2"};
   const CAR_T={
     ru:{sub:"Листайте вниз — проекты сменяются по одному.",next:"Скролл вниз — следующий проект",end:"Скролл вниз — дальше по странице",
       prev_b:"Предыдущий проект",next_b:"Следующий проект",car:"карусель",slide:"слайд",
@@ -465,13 +478,12 @@
     const img=(k,cls)=>IMG[k]?`<img src="${IMG[k]}" alt="" loading="lazy" decoding="async"${cls||""}>`:"";
     const saveData=!!(navigator.connection && navigator.connection.saveData);
     const media=p=>{
-      const v=!saveData && CAR_VIDEO[p.id];
-      if(!v) return img(p.cover);
-      return `<video muted loop playsinline preload="none" poster="${IMG[v[1]]||IMG[p.cover]}" disablepictureinpicture>`
-        +`<source src="${v[0]}.webm" type="video/webm"><source src="${v[0]}.mp4" type="video/mp4"></video>`;
+      const demo=!saveData && p.shots.find(s=>s[2]), still=IMG[CAR_STILL[p.id]]||IMG[p.cover];
+      if(!demo || !IMG[demo[0]]) return img(p.cover);
+      return `<img src="${still}" data-still="${still}" data-live="${IMG[demo[0]]}" alt="" loading="lazy" decoding="async">`;
     };
     const card=(p,i)=>{
-      const ex=(CAR_EXTRA[p.id]||p.shots.map(s=>s[0]).filter(k=>k!==p.cover)).slice(0,2);
+      const ex=(CAR_EXTRA[p.id]||p.shots.filter(s=>!s[2]).map(s=>s[0]).filter(k=>k!==p.cover)).slice(0,2);
       return `<div class="fx-car-card" data-p="${i}" data-id="${esc(p.id)}" role="group">
         <div class="fx-car-in">
           <div class="fx-car-vis">
@@ -482,9 +494,10 @@
             <div class="fx-car-g" style="--n:0"><span class="fx-car-num">${pad(i+1)}</span><span class="fx-car-of">/ ${pad(N)}</span></div>
             <div class="fx-car-g" style="--n:1"><p class="fx-car-type"></p><h3></h3></div>
             <div class="fx-car-g" style="--n:2"><p class="fx-car-short"></p><div class="chips">${p.stack.slice(0,3).map(s=>`<span class="chip">${esc(s)}</span>`).join("")}</div></div>
-            <div class="fx-car-g fx-car-foot" style="--n:3"><span class="fx-car-cnt"></span><button type="button" class="fx-car-go"><span></span>${svg('<path d="M5 12h14M13 6l6 6-6 6"/>',2.2)}</button></div>
+            <div class="fx-car-g fx-car-foot" style="--n:3"><span class="fx-car-cnt"></span><span class="fx-car-go fx-car-ghost" aria-hidden="true"><span></span>${svg('<path d="M5 12h14M13 6l6 6-6 6"/>',2.2)}</span></div>
           </div>
         </div>
+        <div class="fx-car-g fx-car-act" style="--n:3"><button type="button" class="fx-car-go"><span></span>${svg('<path d="M5 12h14M13 6l6 6-6 6"/>',2.2)}</button></div>
         <button type="button" class="fx-car-hit" tabindex="-1" hidden></button>
       </div>`;
     };
@@ -505,7 +518,7 @@
       +`<button type="button" class="icon-btn" data-go="1">${svg('<path d="m9 18 6-6-6-6"/>')}</button>`;
     head.append(ctrl);
     const track=stage.querySelector(".fx-car-track"), live=stage.querySelector(".fx-sr");
-    const cards=[...track.children].map((el,i)=>({el,i,p:PROJECTS[i],in:el.querySelector(".fx-car-in"),hit:el.querySelector(".fx-car-hit")}));
+    const cards=[...track.children].map((el,i)=>({el,i,p:PROJECTS[i],in:el.querySelector(".fx-car-in"),act:el.querySelector(".fx-car-act"),hit:el.querySelector(".fx-car-hit")}));
     const glows=[...stage.querySelectorAll(".fx-car-glow i")], dots=[...stage.querySelectorAll(".fx-car-dots i")], pill=stage.querySelector(".fx-car-dots b");
     const [prevB,nextB]=ctrl.querySelectorAll("button"), countB=ctrl.querySelector("b"), hintT=stage.querySelector(".fx-car-hint span");
 
@@ -518,9 +531,9 @@
         el.querySelector(".fx-car-type").textContent=p.type[lang];
         el.querySelector("h3").textContent=p.name[lang];
         el.querySelector(".fx-car-short").textContent=p.short[lang];
-        el.querySelector(".fx-car-cnt").textContent=t.screens(p.shots.length);
-        el.querySelector(".fx-car-go span").textContent=t.open_project;
-        const cover=el.querySelector(".pcover img,.pcover video"); if(cover) cover.setAttribute(cover.tagName==="VIDEO"?"aria-label":"alt",p.name[lang]);
+        el.querySelector(".fx-car-cnt").textContent=t.screens(p.shots.filter(s=>!s[2]).length);
+        el.querySelectorAll(".fx-car-go > span").forEach(x=>{ x.textContent=t.open_project; });
+        const cover=el.querySelector(".pcover img"); if(cover) cover.alt=p.name[lang];
         hit.setAttribute("aria-label",c.show(p.name[lang]));
       }
       sub.textContent=c.sub;
@@ -541,7 +554,7 @@
         c.el.style.opacity=o; c.el.style.zIndex=20-a*4;
         c.el.style.setProperty("--d",Math.max(-2,Math.min(2,d)));
         c.el.classList.toggle("on",!d); c.el.classList.toggle("side",a===1);
-        c.in.inert=!!d; c.hit.hidden=a!==1;
+        c.in.inert=c.act.inert=!!d; c.hit.hidden=a!==1;
       }
       glows.forEach((g,i)=>g.classList.toggle("on",i===index));
       // the bars: 14px each, the active one 40px (the pill), 8px apart
@@ -563,6 +576,14 @@
       const over=()=>cards.some(c=>narrow?c.el.offsetHeight>room:c.el.querySelector(".fx-car-txt").scrollHeight>c.el.offsetHeight+1);
       for(const t of TIGHT){ if(!over()) break; stage.classList.add(t); }
     }
+    // the button stands over its hidden copy in the footer row (offsets: the layout box, whatever the card's lean)
+    function anchor(){
+      for(const c of cards){
+        const g=c.in.querySelector(".fx-car-ghost"); let x=0, y=0;
+        for(let e=g;e && e!==c.in;e=e.offsetParent){ x+=e.offsetLeft; y+=e.offsetTop; }
+        c.act.style.left=x+c.in.offsetLeft+c.in.clientLeft+"px"; c.act.style.top=y+c.in.offsetTop+c.in.clientTop+"px";
+      }
+    }
     function layout(){
       on=innerHeight>=CAR_MIN_H;
       playAll();
@@ -572,13 +593,13 @@
       stage.classList.toggle("fx-car-n",narrow);
       k=Math.max(CAR_K[0],Math.min(CAR_K[1],innerWidth/1440,track.clientHeight/CAR_ROOM));
       stage.style.setProperty("--k",k.toFixed(4));
-      fill(); fit(); now(place);
+      fill(); fit(); anchor(); now(place);
     }
     function go(i){
       i=Math.max(0,Math.min(N-1,i));
       if(i===index) return false;
       index=i; lockUntil=performance.now()+CAR_DUR+CAR_COOL;
-      place();
+      place(); playAll();
       // the pointer effects re-measure the cards when they start and stop moving
       document.dispatchEvent(new CustomEvent("vz:car")); setTimeout(()=>document.dispatchEvent(new CustomEvent("vz:car",{detail:{done:true}})),CAR_DUR);
       const p=PROJECTS[i]; live.textContent=tt().live(i+1,N,p.name[lang]);
@@ -616,7 +637,7 @@
       const hit=e.target.closest(".fx-car-hit");
       if(hit){ move(+hit.parentNode.dataset.p); return; }
       const c=e.target.closest(".fx-car-card");
-      if(c && +c.dataset.p===index) openProject(index,c.querySelector(".fx-car-go"));
+      if(c && +c.dataset.p===index) openProject(index,c.querySelector(".fx-car-act .fx-car-go"));
     });
     // the language: the texts fade out and back in with the rest of the page (script.js fades the head)
     let outs=[];
@@ -632,27 +653,32 @@
       outs.forEach(a=>a.cancel()); outs=[];
       texts().forEach(el=>el.animate([{opacity:0,filter:"blur(4px)",transform:"translateY(5px)"},{opacity:1,filter:"blur(0px)",transform:"translateY(0)"}],{duration:380,easing:"cubic-bezier(.22,.61,.36,1)"}));
     });
-    // every screen keeps its own proportions, so nothing is cropped
-    stage.querySelectorAll(".fx-car-x img,.pcover img").forEach(im=>{
+    // every still keeps its own proportions, so nothing is cropped (the moving screens are 16:9, as their frame)
+    stage.querySelectorAll(".fx-car-x img,.pcover img:not([data-live])").forEach(im=>{
       const fit=()=>{ if(im.naturalWidth) im.parentNode.style.aspectRatio=`${im.naturalWidth}/${im.naturalHeight}`; };
       if(im.complete) fit(); else im.addEventListener("load",fit,{once:true});
     });
-    // the videos run whenever the section is on screen (the neighbours' too), and stop once it's scrolled away, while
-    // a dialog covers it, or the tab is hidden
-    const videos=[...stage.querySelectorAll("video")], headEl0=document.querySelector(".top");
+    // The moving screens are pictures, drawn with their frame (a video is a layer of its own and jumped against the
+    // floating frame). They run whenever the section is on screen, the neighbours' too (on an upright layout, where a
+    // neighbour is only a sliver, just the middle one, from a lighter file: name-s.avif, 576 px wide); scrolled away, under a dialog or in a hidden tab they rest on
+    // their still and start over when back. Each is decoded before it's shown; where it can't be (no animated AVIF),
+    // the still stays.
+    const lives=[...stage.querySelectorAll("img[data-live]")], headEl0=document.querySelector(".top");
     let shown=false;
     function playAll(){
       const go=shown && !document.hidden && !document.querySelector("dialog[open]") && on;
-      for(const v of videos){ if(go){ if(v.preload!=="auto"){ v.preload="auto"; v.load(); } if(v.paused) v.play().catch(()=>{}); } else if(!v.paused) v.pause(); }
+      for(const im of lives){
+        if(go && (!narrow || +im.closest(".fx-car-card").dataset.p===index)){
+          if(im.dataset.state) continue;
+          im.dataset.state="loading";
+          const src=narrow?im.dataset.live.replace(/\.avif$/,"-s.avif"):im.dataset.live;
+          const pre=new Image(); pre.src=src;
+          pre.decode().then(()=>{ if(im.dataset.state==="loading"){ im.src=src; im.dataset.state="on"; } },
+            ()=>{ lives.splice(lives.indexOf(im),1); im.removeAttribute("data-state"); });
+        } else if(im.dataset.state){ im.removeAttribute("data-state"); im.src=im.dataset.still; }
+      }
     }
-    // a video the device can't decode: the mp4 instead of the webm, and if that fails too, the still
-    for(const v of videos) v.addEventListener("error",()=>{
-      const mp4=v.querySelector('source[type="video/mp4"]');
-      if(mp4 && !/\.mp4$/.test(v.currentSrc)){ v.querySelectorAll("source").forEach(s=>{ if(s!==mp4) s.remove(); }); v.load(); playAll(); return; }
-      const im=document.createElement("img"); im.src=v.poster; im.alt=v.getAttribute("aria-label")||""; v.replaceWith(im);
-      videos.splice(videos.indexOf(v),1);
-    },true);
-    if(videos.length){
+    if(lives.length){
       // on screen means below the header (the section can sit right under it, out of sight)
       if("IntersectionObserver" in window) new IntersectionObserver(es=>{ shown=es[es.length-1].intersectionRatio>=.02; playAll(); },
         {rootMargin:`-${(headEl0||{offsetHeight:0}).offsetHeight}px 0px 0px 0px`,threshold:[0,.02]}).observe(sec);
@@ -696,7 +722,7 @@
   // Smooth wheel: the page follows the wheel on a critically damped spring of this angular frequency (rad/s):
   // it speeds up, then settles softly into place, ~95 % there after 4.74/SMOOTH_W s (about 0.6 s)
   const SMOOTH_W=8;
-  const EDGE_REST=220;                    // ms the wheel rests after braking into a page edge, before it moves on
+  const EDGE_REST=320;                    // ms the wheel rests after braking into a page edge, before it moves on
   const EDGE_NEAR=.2;                     // a page taller than the screen by less than this share is one stop, not two
   const SMOOTH_ACC=9000;                  // px/s²: speeding up is capped at this (a far target pulls smoothly, not
                                           // with a kick); slowing down isn't, so it never overshoots
@@ -763,10 +789,13 @@
       if(to!==null) glideTo(to);
     }
     // the page edge a scroll resting at y should settle on, or null where it may rest as it is
+    // a page's stops for a move this way: its start and end, or one of them if it's only a little taller than the
+    // screen (going down its end, so it's seen whole; going up its start)
+    const edgesOf=(p,d)=>p.e>p.s && p.e-p.s<EDGE_NEAR*innerHeight && d?[d>0?p.e:p.s]:[p.s,p.e];
     function snapFor(y){
       const pages=stops();
       if(pages.some(p=>y>p.s+1 && y<p.e-1)) return null; // inside a long page: read freely
-      const pts=[...new Set(pages.flatMap(p=>[p.s,p.e]).map(Math.round))].sort((a,b)=>a-b);
+      const pts=[...new Set(pages.flatMap(p=>edgesOf(p,dir)).map(Math.round))].sort((a,b)=>a-b);
       let a=null, b=null;
       for(const p of pts){ if(p<=y+.5) a=p; if(p>=y-.5 && b===null) b=p; }
       if(a===null || b===null || Math.abs(y-a)<1 || Math.abs(y-b)<1) return null;
@@ -824,8 +853,7 @@
     let edgeRest=0;
     function edgeAhead(from,to){
       const d=Math.sign(to-from); let best=null;
-      // (going down at its end, so it's seen whole; going up at its start)
-      if(d) for(const p of stops()) for(const y of p.e>p.s && p.e-p.s<EDGE_NEAR*innerHeight?[d>0?p.e:p.s]:[p.s,p.e]){
+      if(d) for(const p of stops()) for(const y of edgesOf(p,d)){
         if(d>0?(y>from+.5 && y<=to):(y<from-.5 && y>=to)) if(best===null || Math.abs(y-from)<Math.abs(best-from)) best=y;
       }
       return best;
@@ -843,8 +871,9 @@
       clearTimeout(m.snap);
       m.snap=setTimeout(()=>{
         if(smoothNow!==m || m.edge!=null || busy() || touching || dragging) return;
+        // the page it heads for is a stop like any other: the wheel waits until it's there
         const to=snapFor(m.target);
-        if(to!==null) m.target=to;
+        if(to!==null){ m.target=to; m.edge=to; }
       },WHEEL_GAP);
     }
     // The projects carousel (above): while the page rests on it, gestures move the projects instead of the page.
@@ -1098,7 +1127,7 @@
         const cover=coverOf(cur.p), shot=pd.querySelectorAll("#pdTrack img")[cur.i];
         if(!cover || !shot || !inView(cover) || !inView(shot)) return false;
         // the strip may have been re-rendered (language switch) while the dialog was open
-        cur.opener=cover.closest("a")||cover.closest(".fx-car-card").querySelector(".fx-car-go");
+        cur.opener=cover.closest("a")||cover.closest(".fx-car-card").querySelector(".fx-car-act .fx-car-go");
         named(shot,"fx-shot"); named(pd,"fx-pd");
         run("close",()=>{ named(shot); named(pd); finishClose(); named(cover,"fx-shot"); },()=>named(cover));
         return true;
@@ -1141,28 +1170,28 @@
     }
   }
 
-  /* ---------- theme switch: the project videos keep playing through the reveal ---------- */
-  // script.js reveals the new theme in a circle over snapshots of the page, so a video would stand still meanwhile.
-  // Before it starts (this listener runs first), each playing video on screen gets a view-transition-name of its own:
+  /* ---------- theme switch: the moving project screens keep running through the reveal ---------- */
+  // script.js reveals the new theme in a circle over snapshots of the page, so a moving screen would stand still
+  // meanwhile. Before it starts (this listener runs first), each running one on screen gets a view-transition-name:
   // it's drawn live above the snapshots, at its card's opacity, with no crossfade (fx.css). The floating holds still.
   const THEME_VT=950;                     // ms: the reveal (750) and a margin
   const themeBtn=document.getElementById("themeBtn");
   if(!REDUCED && themeBtn && document.startViewTransition){
     themeBtn.addEventListener("click",()=>{
       const op=el=>{ let o=1; for(let e=el;e && e!==document.body;e=e.parentElement) o*=+getComputedStyle(e).opacity; return o; };
-      const vids=[...document.querySelectorAll(".fx-car video")].filter(v=>{
-        const r=v.getBoundingClientRect(); return !v.paused && r.bottom>0 && r.top<innerHeight && r.right>0 && r.left<innerWidth && op(v)>.05; }).slice(0,6);
+      const vids=[...document.querySelectorAll('.fx-car img[data-state="on"]')].filter(v=>{
+        const r=v.getBoundingClientRect(); return r.bottom>0 && r.top<innerHeight && r.right>0 && r.left<innerWidth && op(v)>.05; }).slice(0,6);
       if(!vids.length) return;
       const st=document.createElement("style");
-      st.textContent=vids.map((v,i)=>`::view-transition-group(fx-vid-${i}){opacity:${op(v).toFixed(3)}}`).join("");
+      st.textContent=vids.map((v,i)=>`::view-transition-group(fx-live-${i}){opacity:${op(v).toFixed(3)}}`).join("");
       document.head.append(st);
       root.classList.add("fx-theming");
-      vids.forEach((v,i)=>{ v.style.viewTransitionName="fx-vid-"+i; });
+      vids.forEach((v,i)=>{ v.style.viewTransitionName="fx-live-"+i; });
       setTimeout(()=>{ vids.forEach(v=>{ v.style.viewTransitionName=""; }); root.classList.remove("fx-theming"); st.remove(); },THEME_VT);
     },true);
   }
 
-  /* ---------- 3D card: card3d.js + Three.js, loaded once the page is idle, only where it runs well ---------- */
+  /* ---------- 3D card: card3d.js + Three.js, only where it runs well ---------- */
   // ?3d=1 / ?3d=0 force it on or off for testing; without WebGL2 it never loads
   const want3d=(()=>{
     const q=new URLSearchParams(location.search).get("3d");
@@ -1172,22 +1201,33 @@
   })();
   if(want3d){
     const go=()=>import("./card3d.js").then(m=>m.mount(sceneEl)).catch(()=>{}); // on failure the CSS card just stays
-    // after the hero intro, so its heavy first tasks don't stutter the typing
-    const idle=()=>introDone.then(()=>"requestIdleCallback" in window?requestIdleCallback(go,{timeout:2500}):setTimeout(go,300));
-    if(document.readyState==="complete") idle(); else addEventListener("load",idle,{once:true});
+    if(typed){
+      // with the intro: its files come in while the text types (fetched and compiled, not run), and it's set up the
+      // moment the typing ends, so its heavy first tasks never stutter the typing
+      try{
+        const im=JSON.parse(document.querySelector('script[type="importmap"]').textContent).imports;
+        for(const href of ["./card3d.js",im.three,im["three/addons/"]+"environments/RoomEnvironment.js"]){
+          const l=document.createElement("link"); l.rel="modulepreload"; l.href=href; document.head.append(l);
+        }
+      }catch(e){}
+      typed.then(()=>requestAnimationFrame(()=>setTimeout(go,0)));
+    } else {
+      // without it: once the page is idle
+      const idle=()=>"requestIdleCallback" in window?requestIdleCallback(go,{timeout:2500}):setTimeout(go,300);
+      if(document.readyState==="complete") idle(); else addEventListener("load",idle,{once:true});
+    }
   }
 
   if(!fine) return;
 
   const HALO_LERP=.18;                    // halo follow per frame
-  const MAG_SEL=".btn-primary,.btn-ghost,.icon-btn,.tg,.fx-car-go,.copy";
+  const MAG_SEL=".btn-primary,.btn-ghost,.icon-btn,.tg,.fx-car-act .fx-car-go,.copy";
   const MAG_R=80, MAG_MAX=7, MAG_ICON=1.7; // reach from the edge (px), max shift (px), icon shift multiplier
   const SPRING_K=.14, SPRING_D=.6;        // magnet spring stiffness and damping (close to critical: no wobble)
   const SPOT_SEL=".pcard,.tbox,.tg,.prow";
   const GOLD_LERP=.08, GOLD_REST=40;      // --sx easing and resting value
   const LINK_SEL="a,button,[role=button],label,input,select,textarea,summary,.fx-car-in";
   const CAR_TILT=5, CAR_PERSP=1600, CAR_LERP=.1; // carousel card under the pointer: max lean (deg), perspective (px), follow
-  const GO_H=60;                          // how high its button sits over the card, px (it slides by GO_H·sin(lean))
   const PV_TILT=7, PV_PERSP=900, PV_LERP=.12; // project cover tilt: max angle (deg), perspective (px), follow per frame
   const PV_DELAY=350, PV_SLIDE=1900, PV_FADE=600; // hover preview: start delay, time per shot, crossfade (ms)
   const PV_ZOOM=1.07;                     // Ken Burns zoom for regular shots; tall ones scroll down instead
@@ -1301,7 +1341,7 @@
         pv.append(v);
       } else {
         for(const s of p.shots){
-          if(s[0]===p.cover) continue;
+          if(s[0]===p.cover || s[2]) continue;
           const im=document.createElement("img");
           im.alt=""; im.decoding="async"; im.src=IMG[s[0]];
           pv.append(im);
@@ -1448,15 +1488,11 @@
         if(moved){ el.style.setProperty("--mx",(x*b.w).toFixed(0)+"px"); el.style.setProperty("--my",(y*b.h).toFixed(0)+"px"); }
       }
       s.x+=(tx-s.x)*CAR_LERP; s.y+=(ty-s.y)*CAR_LERP;
-      const go=el.querySelector(".fx-car-go"), card=el.parentNode;
       if(Math.abs(tx-s.x)+Math.abs(ty-s.y)<.002){
         s.x=tx; s.y=ty;
-        if(!b){ el.style.transform=""; card.classList.remove("fx-car-leaning"); if(go){ go.style.removeProperty("--gx"); go.style.removeProperty("--gy"); } carLean.delete(el); continue; }
+        if(!b){ el.style.transform=""; carLean.delete(el); continue; }
       } else busy=true;
-      const ry=s.x*CAR_TILT, rx=s.y*CAR_TILT*.7;
-      el.style.transform=`perspective(${CAR_PERSP}px) rotateX(${(-rx).toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg)`;
-      card.classList.add("fx-car-leaning");
-      if(go){ go.style.setProperty("--gx",(GO_H*Math.sin(ry*Math.PI/180)).toFixed(2)+"px"); go.style.setProperty("--gy",(GO_H*Math.sin(rx*Math.PI/180)).toFixed(2)+"px"); }
+      el.style.transform=`perspective(${CAR_PERSP}px) rotateX(${(-s.y*CAR_TILT*.7).toFixed(2)}deg) rotateY(${(s.x*CAR_TILT).toFixed(2)}deg)`;
     }
 
     // gold: anywhere over the hero; same mapping as script.js inside the card so there's no jump

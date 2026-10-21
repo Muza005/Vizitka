@@ -1,5 +1,8 @@
 const IMG = {
   "arc_ctrl_after": "images/arcade-hub-phone-controller.webp",
+  "arc_demo": "images/arcade-hub-match.avif",
+  "crm_demo": "images/autodrive-demo.avif",
+  "drv_demo": "images/driving-demo.avif",
   "arc_game2": "images/arcade-hub-gameplay.webp",
   "arc_hub": "images/arcade-hub-menu.webp",
   "arc_lobby": "images/arcade-hub-game-card.webp",
@@ -155,7 +158,7 @@ const TERMS = {
 
 const PROJECTS = [
   { id:"crm", cover:"crm_dash",
-    shots:[["crm_login",{ru:"Вход по ролям",uz:"Rollar boʻyicha kirish",en:"Role-based sign-in"}],["crm_dash",{ru:"Дашборд менеджера",uz:"Menejer dashboardi",en:"Manager dashboard"}],["crm_deal",{ru:"Канбан и карточка сделки",uz:"Kanban va bitim kartasi",en:"Kanban and deal panel"}],["crm_calendar",{ru:"Календарь встреч",uz:"Uchrashuvlar kalendari",en:"Meetings calendar"}],["crm_car",{ru:"Каталог автомобилей",uz:"Avtomobillar katalogi",en:"Car catalog"}],["crm_analytics",{ru:"Аналитика продаж",uz:"Savdo tahlili",en:"Sales analytics"}],["crm_dash_light",{ru:"Светлая тема",uz:"Yorugʻ mavzu",en:"Light theme"}]],
+    shots:[["crm_demo",{ru:"CRM в работе: экраны по очереди",uz:"CRM ishda: ekranlar ketma-ket",en:"The CRM at work, screen by screen"},1],["crm_login",{ru:"Вход по ролям",uz:"Rollar boʻyicha kirish",en:"Role-based sign-in"}],["crm_dash",{ru:"Дашборд менеджера",uz:"Menejer dashboardi",en:"Manager dashboard"}],["crm_deal",{ru:"Канбан и карточка сделки",uz:"Kanban va bitim kartasi",en:"Kanban and deal panel"}],["crm_calendar",{ru:"Календарь встреч",uz:"Uchrashuvlar kalendari",en:"Meetings calendar"}],["crm_car",{ru:"Каталог автомобилей",uz:"Avtomobillar katalogi",en:"Car catalog"}],["crm_analytics",{ru:"Аналитика продаж",uz:"Savdo tahlili",en:"Sales analytics"}],["crm_dash_light",{ru:"Светлая тема",uz:"Yorugʻ mavzu",en:"Light theme"}]],
     name:{ru:"AutoDrive CRM",uz:"AutoDrive CRM",en:"AutoDrive CRM"},
     type:{ru:"CRM для автосалона",uz:"Avtosalon uchun CRM",en:"CRM for a car dealership"},
     short:{ru:"Путь клиента от звонка до выдачи автомобиля: дашборд, канбан, календарь и каталог BYD.",uz:"Qoʻngʻiroqdan avtomobil topshirilgunicha mijoz yoʻli: dashboard, kanban, kalendar va BYD katalogi.",en:"The customer journey from first call to car handover: dashboard, kanban, calendar and a BYD catalog."},
@@ -170,7 +173,7 @@ const PROJECTS = [
     demo:"https://autodrive-crm-git-claude-laughing-allen-t3p1qp-muza7.vercel.app/", code:null,
     priv:{ru:"Код в закрытом репозитории",uz:"Kod yopiq repozitoriyda",en:"Code is in a private repository"} },
   { id:"arcade", cover:"arc_hub",
-    shots:[["arc_hub",{ru:"Меню игр и комната",uz:"Oʻyinlar menyusi va xona",en:"Game menu and room"}],["arc_lobby",{ru:"Карточка игры",uz:"Oʻyin kartasi",en:"Game card"}],["arc_lobby2",{ru:"Настройки матча",uz:"Oʻyin sozlamalari",en:"Match settings"}],["arc_game2",{ru:"Игровой процесс",uz:"Oʻyin jarayoni",en:"Gameplay"}],["arc_ctrl_after",{ru:"Телефон вместо геймпада",uz:"Geympad oʻrnidagi telefon",en:"Phone as a gamepad"}]],
+    shots:[["arc_demo",{ru:"Матч Space War: четыре игрока",uz:"Space War oʻyini: toʻrt oʻyinchi",en:"A Space War match with four players"},1],["arc_hub",{ru:"Меню игр и комната",uz:"Oʻyinlar menyusi va xona",en:"Game menu and room"}],["arc_lobby",{ru:"Карточка игры",uz:"Oʻyin kartasi",en:"Game card"}],["arc_lobby2",{ru:"Настройки матча",uz:"Oʻyin sozlamalari",en:"Match settings"}],["arc_game2",{ru:"Игровой процесс",uz:"Oʻyin jarayoni",en:"Gameplay"}],["arc_ctrl_after",{ru:"Телефон вместо геймпада",uz:"Geympad oʻrnidagi telefon",en:"Phone as a gamepad"}]],
     name:{ru:"Arcade Hub",uz:"Arcade Hub",en:"Arcade Hub"},
     type:{ru:"Игры для компании с телефонами вместо геймпадов",uz:"Telefon geympad boʻladigan davra oʻyinlari",en:"Party games with phones as gamepads"},
     short:{ru:"Игру открывают на ноутбуке или телевизоре, друзья сканируют QR и играют с телефонов. До 10 игроков.",uz:"Oʻyin noutbuk yoki televizorda ochiladi, doʻstlar QR-kodni skanerlab telefondan oʻynaydi. 10 tagacha oʻyinchi.",en:"Open it on a laptop or TV; friends scan a QR code and play from their phones. Up to 10 players."},
@@ -184,7 +187,7 @@ const PROJECTS = [
     stack:["TypeScript","PixiJS","Node.js","WebSocket","Vite","Vitest"],
     demo:"https://arcade-hub-1d7x.onrender.com", code:"https://github.com/Muza005/Arcade-Hub" },
   { id:"drive", cover:"drv_s1",
-    shots:[["drv_s1",{ru:"Тарифы",uz:"Tariflar",en:"Pricing"}],["drv_s2",{ru:"Этапы обучения",uz:"Oʻqish bosqichlari",en:"Learning steps"}],["drv_s3",{ru:"Форма записи",uz:"Yozilish formasi",en:"Booking form"}],["drv_m0",{ru:"Первый экран на телефоне",uz:"Telefondagi birinchi ekran",en:"First screen on a phone"}],["drv_m1",{ru:"Тарифы на телефоне",uz:"Telefonda tariflar",en:"Pricing on a phone"}]],
+    shots:[["drv_demo",{ru:"Выбор тарифа и запись на занятие",uz:"Tarif tanlash va darsga yozilish",en:"Picking a plan and booking a lesson"},1],["drv_s1",{ru:"Тарифы",uz:"Tariflar",en:"Pricing"}],["drv_s2",{ru:"Этапы обучения",uz:"Oʻqish bosqichlari",en:"Learning steps"}],["drv_s3",{ru:"Форма записи",uz:"Yozilish formasi",en:"Booking form"}],["drv_m0",{ru:"Первый экран на телефоне",uz:"Telefondagi birinchi ekran",en:"First screen on a phone"}],["drv_m1",{ru:"Тарифы на телефоне",uz:"Telefonda tariflar",en:"Pricing on a phone"}]],
     name:{ru:"Уроки вождения",uz:"Haydash darslari",en:"Driving lessons"},
     type:{ru:"Лендинг частного автоинструктора",uz:"Xususiy avtoinstruktor lendingi",en:"Landing page for a driving instructor"},
     short:{ru:"Продающая страница для частных уроков вождения: тарифы, этапы обучения и запись на занятие.",uz:"Xususiy haydash darslari uchun sotuvchi sahifa: tariflar, oʻqish bosqichlari va darsga yozilish.",en:"A sales page for private driving lessons: pricing, learning steps and booking."},
@@ -214,8 +217,9 @@ const ICON_GH = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"
 function renderStrip(){
   const t=T[lang];
   const cards = PROJECTS.map((p,i)=>{
-    const minis = p.shots.filter(s=>s[0]!==p.cover).slice(0,3).map(s=>`<span><img src="${IMG[s[0]]}" alt="" loading="lazy"></span>`).join("");
-    const rest = p.shots.length-1-3;
+    const shots = p.shots.filter(s=>!s[2]);
+    const minis = shots.filter(s=>s[0]!==p.cover).slice(0,3).map(s=>`<span><img src="${IMG[s[0]]}" alt="" loading="lazy"></span>`).join("");
+    const rest = shots.length-1-3;
     return `<a class="pcard" href="#${p.id}" data-p="${i}">
       <div class="pcover"><img src="${IMG[p.cover]}" alt="${esc(p.name[lang])}"></div>
       <div class="pminis">${minis}<span>${rest>0?"+"+rest:""}</span></div>
@@ -224,7 +228,7 @@ function renderStrip(){
         <h3>${esc(p.name[lang])}</h3>
         <p class="pshort">${esc(p.short[lang])}</p>
         <div class="chips">${p.stack.slice(0,3).map(s=>`<span class="chip">${esc(s)}</span>`).join("")}</div>
-        <span class="pfoot"><span class="cnt">${esc(t.screens(p.shots.length))}</span><span class="go">${esc(t.open_project)}</span></span>
+        <span class="pfoot"><span class="cnt">${esc(t.screens(shots.length))}</span><span class="go">${esc(t.open_project)}</span></span>
       </div>
     </a>`;
   }).join("");
@@ -501,7 +505,7 @@ if(fine){
 }
 let guillocheW=0;
 function drawGuilloche(){
-  const front=$(".front"), r=front.getBoundingClientRect(); if(!r.width) return;
+  const front=$(".front"), r={width:front.offsetWidth,height:front.offsetHeight}; if(!r.width) return;
   const dpr=Math.min(2,window.devicePixelRatio||1);
   if(Math.abs(r.width*dpr-guillocheW)<2) return;
   guillocheW=r.width*dpr;
