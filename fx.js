@@ -697,6 +697,7 @@
   // it speeds up, then settles softly into place, ~95 % there after 4.74/SMOOTH_W s (about 0.6 s)
   const SMOOTH_W=8;
   const EDGE_REST=220;                    // ms the wheel rests after braking into a page edge, before it moves on
+  const EDGE_NEAR=.2;                     // a page taller than the screen by less than this share is one stop, not two
   const SMOOTH_ACC=9000;                  // px/s²: speeding up is capped at this (a far target pulls smoothly, not
                                           // with a kick); slowing down isn't, so it never overshoots
   const headEl=document.querySelector(".top"), footEl=document.querySelector("body > footer");
@@ -823,7 +824,8 @@
     let edgeRest=0;
     function edgeAhead(from,to){
       const d=Math.sign(to-from); let best=null;
-      if(d) for(const p of stops()) for(const y of [p.s,p.e]){
+      // (going down at its end, so it's seen whole; going up at its start)
+      if(d) for(const p of stops()) for(const y of p.e>p.s && p.e-p.s<EDGE_NEAR*innerHeight?[d>0?p.e:p.s]:[p.s,p.e]){
         if(d>0?(y>from+.5 && y<=to):(y<from-.5 && y>=to)) if(best===null || Math.abs(y-from)<Math.abs(best-from)) best=y;
       }
       return best;
@@ -878,6 +880,9 @@
         }
         scrollTo({top:ps,behavior:"instant"});
       }
+      // resting on the carousel, the page is moved only by the gestures above: a browser's own scroll (focusing the
+      // clicked button may bring it "into view", from inside the leaning card) is undone at once
+      if(carAt && lastInput==="pointer" && free && now>quietUntil && Math.abs(scrollY-ps)>=2) scrollTo({top:ps,behavior:"instant"});
       carY=scrollY; carAt=Math.abs(carY-ps)<2;
       // out of view: the next visit from above starts at the first project, from below at the last
       const r=projEl.getBoundingClientRect();
@@ -1136,6 +1141,27 @@
     }
   }
 
+  /* ---------- theme switch: the project videos keep playing through the reveal ---------- */
+  // script.js reveals the new theme in a circle over snapshots of the page, so a video would stand still meanwhile.
+  // Before it starts (this listener runs first), each playing video on screen gets a view-transition-name of its own:
+  // it's drawn live above the snapshots, at its card's opacity, with no crossfade (fx.css). The floating holds still.
+  const THEME_VT=950;                     // ms: the reveal (750) and a margin
+  const themeBtn=document.getElementById("themeBtn");
+  if(!REDUCED && themeBtn && document.startViewTransition){
+    themeBtn.addEventListener("click",()=>{
+      const op=el=>{ let o=1; for(let e=el;e && e!==document.body;e=e.parentElement) o*=+getComputedStyle(e).opacity; return o; };
+      const vids=[...document.querySelectorAll(".fx-car video")].filter(v=>{
+        const r=v.getBoundingClientRect(); return !v.paused && r.bottom>0 && r.top<innerHeight && r.right>0 && r.left<innerWidth && op(v)>.05; }).slice(0,6);
+      if(!vids.length) return;
+      const st=document.createElement("style");
+      st.textContent=vids.map((v,i)=>`::view-transition-group(fx-vid-${i}){opacity:${op(v).toFixed(3)}}`).join("");
+      document.head.append(st);
+      root.classList.add("fx-theming");
+      vids.forEach((v,i)=>{ v.style.viewTransitionName="fx-vid-"+i; });
+      setTimeout(()=>{ vids.forEach(v=>{ v.style.viewTransitionName=""; }); root.classList.remove("fx-theming"); st.remove(); },THEME_VT);
+    },true);
+  }
+
   /* ---------- 3D card: card3d.js + Three.js, loaded once the page is idle, only where it runs well ---------- */
   // ?3d=1 / ?3d=0 force it on or off for testing; without WebGL2 it never loads
   const want3d=(()=>{
@@ -1154,13 +1180,14 @@
   if(!fine) return;
 
   const HALO_LERP=.18;                    // halo follow per frame
-  const MAG_SEL=".btn-primary,.btn-ghost,.icon-btn,.tg,.fx-car-go";
+  const MAG_SEL=".btn-primary,.btn-ghost,.icon-btn,.tg,.fx-car-go,.copy";
   const MAG_R=80, MAG_MAX=7, MAG_ICON=1.7; // reach from the edge (px), max shift (px), icon shift multiplier
   const SPRING_K=.14, SPRING_D=.6;        // magnet spring stiffness and damping (close to critical: no wobble)
   const SPOT_SEL=".pcard,.tbox,.tg,.prow";
   const GOLD_LERP=.08, GOLD_REST=40;      // --sx easing and resting value
   const LINK_SEL="a,button,[role=button],label,input,select,textarea,summary,.fx-car-in";
   const CAR_TILT=5, CAR_PERSP=1600, CAR_LERP=.1; // carousel card under the pointer: max lean (deg), perspective (px), follow
+  const GO_H=60;                          // how high its button sits over the card, px (it slides by GO_H·sin(lean))
   const PV_TILT=7, PV_PERSP=900, PV_LERP=.12; // project cover tilt: max angle (deg), perspective (px), follow per frame
   const PV_DELAY=350, PV_SLIDE=1900, PV_FADE=600; // hover preview: start delay, time per shot, crossfade (ms)
   const PV_ZOOM=1.07;                     // Ken Burns zoom for regular shots; tall ones scroll down instead
@@ -1421,11 +1448,15 @@
         if(moved){ el.style.setProperty("--mx",(x*b.w).toFixed(0)+"px"); el.style.setProperty("--my",(y*b.h).toFixed(0)+"px"); }
       }
       s.x+=(tx-s.x)*CAR_LERP; s.y+=(ty-s.y)*CAR_LERP;
+      const go=el.querySelector(".fx-car-go"), card=el.parentNode;
       if(Math.abs(tx-s.x)+Math.abs(ty-s.y)<.002){
         s.x=tx; s.y=ty;
-        if(!b){ el.style.transform=""; carLean.delete(el); continue; }
+        if(!b){ el.style.transform=""; card.classList.remove("fx-car-leaning"); if(go){ go.style.removeProperty("--gx"); go.style.removeProperty("--gy"); } carLean.delete(el); continue; }
       } else busy=true;
-      el.style.transform=`perspective(${CAR_PERSP}px) rotateX(${(-s.y*CAR_TILT*.7).toFixed(2)}deg) rotateY(${(s.x*CAR_TILT).toFixed(2)}deg)`;
+      const ry=s.x*CAR_TILT, rx=s.y*CAR_TILT*.7;
+      el.style.transform=`perspective(${CAR_PERSP}px) rotateX(${(-rx).toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg)`;
+      card.classList.add("fx-car-leaning");
+      if(go){ go.style.setProperty("--gx",(GO_H*Math.sin(ry*Math.PI/180)).toFixed(2)+"px"); go.style.setProperty("--gy",(GO_H*Math.sin(rx*Math.PI/180)).toFixed(2)+"px"); }
     }
 
     // gold: anywhere over the hero; same mapping as script.js inside the card so there's no jump

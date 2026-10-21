@@ -340,7 +340,7 @@ section[tabindex="-1"]:focus{outline:none}
 .fx-car-vis::before{content:"";position:absolute;left:8%;top:6%;width:84%;height:88%;pointer-events:none;
   background:radial-gradient(closest-side,color-mix(in srgb,var(--acc) var(--car-vis-glow),transparent),transparent)}
 .fx-car-main,.fx-car-x{position:absolute;transition:translate var(--car-dur) var(--car-ease),scale .7s cubic-bezier(.2,.75,.15,1),box-shadow .7s var(--ease);
-  animation:fxFloat var(--fl-t,6s) ease-in-out var(--fl-d,0s) infinite}
+  animation:var(--fl-n,fxFloat6) var(--fl-t,6s) ease-in-out var(--fl-d,0s) infinite;will-change:transform}
 .fx-car-main{left:calc(36px * var(--k));top:calc(60px * var(--k));width:calc(428px * var(--k));
   border-radius:max(8px,calc(12px * var(--k)));overflow:hidden;background:var(--car-frame);border:1px solid var(--car-line);
   box-shadow:var(--car-shot-sh);translate:calc(var(--d,0) * -20px * var(--k)) 0}
@@ -353,14 +353,17 @@ section[tabindex="-1"]:focus{outline:none}
 .fx-car-x{aspect-ratio:16/9;border-radius:max(6px,calc(10px * var(--k)));overflow:hidden;background:var(--car-frame);
   border:1px solid var(--car-line);box-shadow:var(--car-shot-sh)}
 .fx-car-x img{width:100%;height:100%;object-fit:cover;object-position:top left}
-.fx-car-main{--fl-a:-6px}
-.fx-car-x1{left:calc(48px * var(--k));top:calc(354px * var(--k));width:calc(180px * var(--k));rotate:-3deg;--fl-t:5.2s;--fl-d:-1.7s;--fl-a:-9px;
+/* each screen floats on its own layer, video and frame as one piece (a video is a layer of its own: inside a frame
+   that only moved in paint it snapped to whole pixels while the frame glided, so it seemed to jump) */
+.fx-car-x1{left:calc(48px * var(--k));top:calc(354px * var(--k));width:calc(180px * var(--k));rotate:-3deg;--fl-n:fxFloat9;--fl-t:5.2s;--fl-d:-1.7s;
   translate:calc(var(--d,0) * -40px * var(--k)) 0}
-.fx-car-x2{left:calc(252px * var(--k));top:calc(318px * var(--k));width:calc(204px * var(--k));rotate:2.5deg;--fl-t:5.8s;--fl-d:-3.4s;--fl-a:-8px;
+.fx-car-x2{left:calc(252px * var(--k));top:calc(318px * var(--k));width:calc(204px * var(--k));rotate:2.5deg;--fl-n:fxFloat8;--fl-t:5.8s;--fl-d:-3.4s;
   translate:calc(var(--d,0) * -56px * var(--k)) 0}
 
 /* the screens float in place, each at its own pace; on the active card under the pointer they come a little closer */
-@keyframes fxFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(calc(var(--fl-a,-6px) * var(--k)))}}
+@keyframes fxFloat6{0%,100%{transform:translate3d(0,0,0)}50%{transform:translate3d(0,-6px,0)}}
+@keyframes fxFloat9{0%,100%{transform:translate3d(0,0,0)}50%{transform:translate3d(0,-9px,0)}}
+@keyframes fxFloat8{0%,100%{transform:translate3d(0,0,0)}50%{transform:translate3d(0,-8px,0)}}
 .fx-car-card.on:hover :is(.fx-car-main,.fx-car-x){scale:1.04;box-shadow:var(--car-shot-sh),0 30px 60px -30px rgba(0,0,0,.55)}
 .fx-car-card.on:hover .fx-car-x2{scale:1.06}
 /* the active card is one big button: it opens the project. Under the pointer (fx.js, fine pointer) it leans toward it
@@ -391,11 +394,18 @@ section[tabindex="-1"]:focus{outline:none}
 .fx-car .chip{background:var(--car-chip);color:var(--car-chip-ink);font-size:13px;font-weight:600;padding:4px 12px}
 .fx-car-foot{margin-top:auto;padding-top:14px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 14px}
 .fx-car-cnt{font-size:14px;font-weight:600;color:var(--muted);white-space:nowrap}
+/* the button sits a little above the card: a lit top edge, a darker bottom one and a shadow on the card below it;
+   while the card leans (fx.js) it slides by --gx/--gy, as something raised over the card would, and its shadow stays */
 .fx-car-go{display:inline-flex;align-items:center;gap:8px;min-height:max(40px,calc(46px * var(--k)));padding:0 max(14px,calc(20px * var(--k)));
   border:0;border-radius:12px;background:var(--acc);color:#10132A;font-weight:700;font-size:15px;cursor:pointer;white-space:nowrap;
+  --gx:0px;--gy:0px;--go-lift:10px;--go-sh:color-mix(in srgb,var(--acc) 45%,rgba(0,0,0,.75));
+  transform:translate3d(var(--gx),var(--gy),0);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 -2px 0 rgba(0,0,0,.16),
+    calc(var(--gx) * -1.5) calc(var(--go-lift) - var(--gy) * 1.5) 22px -10px var(--go-sh);
   transition:background-color .3s var(--ease),box-shadow .3s var(--ease)}
 .fx-car-go svg{width:16px;height:16px;flex:none;transition:transform .45s var(--ease)}
-.fx-car-go:hover{background:color-mix(in srgb,var(--acc) 86%,#fff);box-shadow:0 10px 24px -12px var(--acc)}
+.fx-car-go:hover{background:color-mix(in srgb,var(--acc) 86%,#fff);--go-lift:14px;--go-sh:color-mix(in srgb,var(--acc) 70%,rgba(0,0,0,.6))}
+.fx-car-card:not(.fx-car-leaning) .fx-car-go{transition:background-color .3s var(--ease),box-shadow .3s var(--ease),transform .5s var(--ease)}
 .fx-car-go:hover svg{transform:translateX(3px)}
 /* tight rooms (fx.js): first the description gets shorter, then the chips go, then the description, and an upright
    card's picture gets wider than tall */
@@ -459,7 +469,7 @@ section[tabindex="-1"]:focus{outline:none}
 html:not(.fx) .pcard{position:relative}
 html:not(.fx) .pcard:hover::after{content:"";position:absolute;left:0;right:0;top:0;bottom:-7px}
 /* magnetic buttons move on their own layer, so their text glides instead of stepping from pixel to pixel */
-.fx :is(.btn-primary,.btn-ghost,.icon-btn,.fx-car-go){will-change:transform}
+.fx :is(.btn-primary,.btn-ghost,.icon-btn,.fx-car-go,.copy){will-change:transform}
 
 /* Project dialog: the header floats over the content, which scrolls under it through a frosted glass (html.fx-pdh,
    set by fx.js once it measured the header into --pd-head) */
@@ -470,3 +480,13 @@ html:not(.fx) .pcard:hover::after{content:"";position:absolute;left:0;right:0;to
   border-bottom-color:color-mix(in srgb,var(--line) 75%,transparent)}
 .fx-pdh .pd-scroll{padding-top:var(--pd-head,72px);scroll-padding-top:var(--pd-head,72px)}
 @media (max-width:760px){ .fx-pdh .pd-head{top:env(safe-area-inset-top,0px)} }
+
+/* Theme switch: the page is revealed in a circle from snapshots (script.js), which would freeze the project videos
+   for that time; fx.js lifts the playing ones out as their own live layers (fx-vid-N) and holds the floating still */
+::view-transition-group(fx-vid-0){animation:none}::view-transition-old(fx-vid-0){display:none}::view-transition-new(fx-vid-0){animation:none}
+::view-transition-group(fx-vid-1){animation:none}::view-transition-old(fx-vid-1){display:none}::view-transition-new(fx-vid-1){animation:none}
+::view-transition-group(fx-vid-2){animation:none}::view-transition-old(fx-vid-2){display:none}::view-transition-new(fx-vid-2){animation:none}
+::view-transition-group(fx-vid-3){animation:none}::view-transition-old(fx-vid-3){display:none}::view-transition-new(fx-vid-3){animation:none}
+::view-transition-group(fx-vid-4){animation:none}::view-transition-old(fx-vid-4){display:none}::view-transition-new(fx-vid-4){animation:none}
+::view-transition-group(fx-vid-5){animation:none}::view-transition-old(fx-vid-5){display:none}::view-transition-new(fx-vid-5){animation:none}
+.fx-theming .fx-car :is(.fx-car-main,.fx-car-x){animation-play-state:paused}
