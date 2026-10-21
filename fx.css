@@ -339,7 +339,8 @@ section[tabindex="-1"]:focus{outline:none}
 .fx-car-vis{position:relative;background:var(--car-vis);overflow:hidden;cursor:pointer}
 .fx-car-vis::before{content:"";position:absolute;left:8%;top:6%;width:84%;height:88%;pointer-events:none;
   background:radial-gradient(closest-side,color-mix(in srgb,var(--acc) var(--car-vis-glow),transparent),transparent)}
-.fx-car-main,.fx-car-x{position:absolute;transition:translate var(--car-dur) var(--car-ease)}
+.fx-car-main,.fx-car-x{position:absolute;transition:translate var(--car-dur) var(--car-ease),scale .7s cubic-bezier(.2,.75,.15,1),box-shadow .7s var(--ease);
+  animation:fxFloat var(--fl-t,6s) ease-in-out var(--fl-d,0s) infinite}
 .fx-car-main{left:calc(36px * var(--k));top:calc(60px * var(--k));width:calc(428px * var(--k));
   border-radius:max(8px,calc(12px * var(--k)));overflow:hidden;background:var(--car-frame);border:1px solid var(--car-line);
   box-shadow:var(--car-shot-sh);translate:calc(var(--d,0) * -20px * var(--k)) 0}
@@ -347,14 +348,32 @@ section[tabindex="-1"]:focus{outline:none}
   padding:0 max(8px,calc(12px * var(--k)));background:var(--car-bar)}
 .fx-car-bar i{width:max(5px,calc(8px * var(--k)));aspect-ratio:1;border-radius:50%;background:var(--car-pip);flex:none}
 .fx-car-bar i:last-child{flex:1;aspect-ratio:auto;height:max(6px,calc(10px * var(--k)));border-radius:99px;margin-left:max(6px,calc(10px * var(--k)))}
-.fx-car .pcover{border-radius:0;aspect-ratio:16/10}
-.fx-car-x{aspect-ratio:16/10;border-radius:max(6px,calc(10px * var(--k)));overflow:hidden;background:var(--car-frame);
+.fx-car .pcover{border-radius:0;aspect-ratio:16/9}
+.fx-car .pcover video{display:block;width:100%;height:100%;object-fit:cover}
+.fx-car-x{aspect-ratio:16/9;border-radius:max(6px,calc(10px * var(--k)));overflow:hidden;background:var(--car-frame);
   border:1px solid var(--car-line);box-shadow:var(--car-shot-sh)}
 .fx-car-x img{width:100%;height:100%;object-fit:cover;object-position:top left}
-.fx-car-x1{left:calc(48px * var(--k));top:calc(354px * var(--k));width:calc(180px * var(--k));rotate:-3deg;
+.fx-car-main{--fl-a:-6px}
+.fx-car-x1{left:calc(48px * var(--k));top:calc(354px * var(--k));width:calc(180px * var(--k));rotate:-3deg;--fl-t:5.2s;--fl-d:-1.7s;--fl-a:-9px;
   translate:calc(var(--d,0) * -40px * var(--k)) 0}
-.fx-car-x2{left:calc(252px * var(--k));top:calc(318px * var(--k));width:calc(204px * var(--k));rotate:2.5deg;
+.fx-car-x2{left:calc(252px * var(--k));top:calc(318px * var(--k));width:calc(204px * var(--k));rotate:2.5deg;--fl-t:5.8s;--fl-d:-3.4s;--fl-a:-8px;
   translate:calc(var(--d,0) * -56px * var(--k)) 0}
+
+/* the screens float in place, each at its own pace; on the active card under the pointer they come a little closer */
+@keyframes fxFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(calc(var(--fl-a,-6px) * var(--k)))}}
+.fx-car-card.on:hover :is(.fx-car-main,.fx-car-x){scale:1.04;box-shadow:var(--car-shot-sh),0 30px 60px -30px rgba(0,0,0,.55)}
+.fx-car-card.on:hover .fx-car-x2{scale:1.06}
+/* the active card is one big button: it opens the project. Under the pointer (fx.js, fine pointer) it leans toward it
+   and a light of the project's color follows it, over the card and along its edge */
+.fx-car-card.on .fx-car-in{cursor:pointer}
+.fx-car-in{position:relative}
+.fx-car-in::before,.fx-car-in::after{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;border-radius:inherit;opacity:0;
+  transition:opacity .5s var(--ease)}
+.fx-car-in::before{background:radial-gradient(560px circle at var(--mx,50%) var(--my,50%),color-mix(in srgb,var(--acc) 8%,transparent),transparent 65%)}
+.fx-car-in::after{padding:1px;background:radial-gradient(320px circle at var(--mx,50%) var(--my,50%),color-mix(in srgb,var(--acc) 75%,transparent),transparent 70%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
+.fx-car-in.fx-hov::before,.fx-car-in.fx-hov::after{opacity:1;transition-duration:.25s}
 
 /* text side, in four groups that rise in one after another on the card that arrives */
 .fx-car-txt{display:flex;flex-direction:column;min-width:0;min-height:0;padding:max(20px,calc(40px * var(--k))) max(20px,calc(32px * var(--k)))}
@@ -429,3 +448,25 @@ section[tabindex="-1"]:focus{outline:none}
 }
 /* a silent jump (fx.js: reset while the section is out of view, resize) */
 .fx-car-now :is(.fx-car-card,.fx-car-g,.fx-car-main,.fx-car-x,.fx-car-dots > *,.fx-car-glow i){transition:none !important}
+
+/* ---------- Stage 13: polish ---------- */
+/* Hover lifts that moved their own hit area: with the pointer right at the bottom edge the lift took the element away
+   from under it, the hover dropped, it came back, and so on (the text shook). While hovered, the hit area reaches past
+   the lift, so the hover holds. On fine pointers the strip cards keep still and let the spotlight do the work. */
+.btn-primary,.thumbs button{position:relative}
+.btn-primary:hover::after,.thumbs button:hover::after{content:"";position:absolute;left:0;right:0;top:0;bottom:-5px}
+.fx .pcard:hover{transform:none}
+html:not(.fx) .pcard{position:relative}
+html:not(.fx) .pcard:hover::after{content:"";position:absolute;left:0;right:0;top:0;bottom:-7px}
+/* magnetic buttons move on their own layer, so their text glides instead of stepping from pixel to pixel */
+.fx :is(.btn-primary,.btn-ghost,.icon-btn,.fx-car-go){will-change:transform}
+
+/* Project dialog: the header floats over the content, which scrolls under it through a frosted glass (html.fx-pdh,
+   set by fx.js once it measured the header into --pd-head) */
+.fx-pdh .pd-in{position:relative}
+.fx-pdh .pd-head{position:absolute;left:0;right:0;top:0;z-index:4;
+  background:color-mix(in srgb,var(--surface) 72%,transparent);
+  -webkit-backdrop-filter:saturate(1.8) blur(20px);backdrop-filter:saturate(1.8) blur(20px);
+  border-bottom-color:color-mix(in srgb,var(--line) 75%,transparent)}
+.fx-pdh .pd-scroll{padding-top:var(--pd-head,72px);scroll-padding-top:var(--pd-head,72px)}
+@media (max-width:760px){ .fx-pdh .pd-head{top:env(safe-area-inset-top,0px)} }

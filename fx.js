@@ -444,6 +444,8 @@
   const CAR_POS_N=[[1,1],[.88,.45],[.8,0]];         // upright: x is set so a neighbour shows CAR_PEEK of the screen
   const CAR_PEEK=.06;
   const CAR_EXTRA={crm:["crm_car","crm_deal"],arcade:["arc_game2","arc_lobby2"],drive:["drv_s2","drv_s3"]}; // the two smaller screens
+  // the main screen as a short looping video (webm, mp4 fallback), with a still shown until it plays
+  const CAR_VIDEO={crm:["images/autodrive-demo-loop","crm_dash"],arcade:["images/arcade-hub-gameplay-loop","arc_game2"],drive:["images/driving-demo-loop","drv_s1"]};
   const CAR_T={
     ru:{sub:"Листайте вниз — проекты сменяются по одному.",next:"Скролл вниз — следующий проект",end:"Скролл вниз — дальше по странице",
       prev_b:"Предыдущий проект",next_b:"Следующий проект",car:"карусель",slide:"слайд",
@@ -461,12 +463,19 @@
     const N=PROJECTS.length, pad=n=>String(n).padStart(2,"0"), tt=()=>CAR_T[lang]||CAR_T.ru;
     const svg=(d,w)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w||2}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
     const img=(k,cls)=>IMG[k]?`<img src="${IMG[k]}" alt="" loading="lazy" decoding="async"${cls||""}>`:"";
+    const saveData=!!(navigator.connection && navigator.connection.saveData);
+    const media=p=>{
+      const v=!saveData && CAR_VIDEO[p.id];
+      if(!v) return img(p.cover);
+      return `<video muted loop playsinline preload="none" poster="${IMG[v[1]]||IMG[p.cover]}" disablepictureinpicture>`
+        +`<source src="${v[0]}.webm" type="video/webm"><source src="${v[0]}.mp4" type="video/mp4"></video>`;
+    };
     const card=(p,i)=>{
       const ex=(CAR_EXTRA[p.id]||p.shots.map(s=>s[0]).filter(k=>k!==p.cover)).slice(0,2);
       return `<div class="fx-car-card" data-p="${i}" data-id="${esc(p.id)}" role="group">
         <div class="fx-car-in">
           <div class="fx-car-vis">
-            <div class="fx-car-main"><div class="fx-car-bar" aria-hidden="true"><i></i><i></i><i></i><i></i></div><div class="pcover">${img(p.cover)}</div></div>
+            <div class="fx-car-main"><div class="fx-car-bar" aria-hidden="true"><i></i><i></i><i></i><i></i></div><div class="pcover">${media(p)}</div></div>
             ${ex.map((k,j)=>`<div class="fx-car-x fx-car-x${j+1}" aria-hidden="true">${img(k)}</div>`).join("")}
           </div>
           <div class="fx-car-txt">
@@ -511,7 +520,7 @@
         el.querySelector(".fx-car-short").textContent=p.short[lang];
         el.querySelector(".fx-car-cnt").textContent=t.screens(p.shots.length);
         el.querySelector(".fx-car-go span").textContent=t.open_project;
-        const cover=el.querySelector(".pcover img"); if(cover) cover.alt=p.name[lang];
+        const cover=el.querySelector(".pcover img,.pcover video"); if(cover) cover.setAttribute(cover.tagName==="VIDEO"?"aria-label":"alt",p.name[lang]);
         hit.setAttribute("aria-label",c.show(p.name[lang]));
       }
       sub.textContent=c.sub;
@@ -556,6 +565,7 @@
     }
     function layout(){
       on=innerHeight>=CAR_MIN_H;
+      playAll();
       root.classList.toggle("fx-car-on",on);
       if(!on){ sec.removeAttribute("aria-roledescription"); sec.removeAttribute("aria-label"); return; }
       narrow=innerWidth<CAR_NARROW;
@@ -569,6 +579,8 @@
       if(i===index) return false;
       index=i; lockUntil=performance.now()+CAR_DUR+CAR_COOL;
       place();
+      // the pointer effects re-measure the cards when they start and stop moving
+      document.dispatchEvent(new CustomEvent("vz:car")); setTimeout(()=>document.dispatchEvent(new CustomEvent("vz:car",{detail:{done:true}})),CAR_DUR);
       const p=PROJECTS[i]; live.textContent=tt().live(i+1,N,p.name[lang]);
       return true;
     }
@@ -603,7 +615,7 @@
     track.addEventListener("click",e=>{
       const hit=e.target.closest(".fx-car-hit");
       if(hit){ move(+hit.parentNode.dataset.p); return; }
-      const open=e.target.closest(".fx-car-go,.fx-car-vis"), c=open&&open.closest(".fx-car-card");
+      const c=e.target.closest(".fx-car-card");
       if(c && +c.dataset.p===index) openProject(index,c.querySelector(".fx-car-go"));
     });
     // the language: the texts fade out and back in with the rest of the page (script.js fades the head)
@@ -620,6 +632,35 @@
       outs.forEach(a=>a.cancel()); outs=[];
       texts().forEach(el=>el.animate([{opacity:0,filter:"blur(4px)",transform:"translateY(5px)"},{opacity:1,filter:"blur(0px)",transform:"translateY(0)"}],{duration:380,easing:"cubic-bezier(.22,.61,.36,1)"}));
     });
+    // every screen keeps its own proportions, so nothing is cropped
+    stage.querySelectorAll(".fx-car-x img,.pcover img").forEach(im=>{
+      const fit=()=>{ if(im.naturalWidth) im.parentNode.style.aspectRatio=`${im.naturalWidth}/${im.naturalHeight}`; };
+      if(im.complete) fit(); else im.addEventListener("load",fit,{once:true});
+    });
+    // the videos run whenever the section is on screen (the neighbours' too), and stop once it's scrolled away, while
+    // a dialog covers it, or the tab is hidden
+    const videos=[...stage.querySelectorAll("video")], headEl0=document.querySelector(".top");
+    let shown=false;
+    function playAll(){
+      const go=shown && !document.hidden && !document.querySelector("dialog[open]") && on;
+      for(const v of videos){ if(go){ if(v.preload!=="auto"){ v.preload="auto"; v.load(); } if(v.paused) v.play().catch(()=>{}); } else if(!v.paused) v.pause(); }
+    }
+    // a video the device can't decode: the mp4 instead of the webm, and if that fails too, the still
+    for(const v of videos) v.addEventListener("error",()=>{
+      const mp4=v.querySelector('source[type="video/mp4"]');
+      if(mp4 && !/\.mp4$/.test(v.currentSrc)){ v.querySelectorAll("source").forEach(s=>{ if(s!==mp4) s.remove(); }); v.load(); playAll(); return; }
+      const im=document.createElement("img"); im.src=v.poster; im.alt=v.getAttribute("aria-label")||""; v.replaceWith(im);
+      videos.splice(videos.indexOf(v),1);
+    },true);
+    if(videos.length){
+      // on screen means below the header (the section can sit right under it, out of sight)
+      if("IntersectionObserver" in window) new IntersectionObserver(es=>{ shown=es[es.length-1].intersectionRatio>=.02; playAll(); },
+        {rootMargin:`-${(headEl0||{offsetHeight:0}).offsetHeight}px 0px 0px 0px`,threshold:[0,.02]}).observe(sec);
+      else { shown=true; playAll(); }
+      document.addEventListener("visibilitychange",playAll);
+      const pdEl=document.getElementById("pd");
+      if(pdEl) new MutationObserver(playAll).observe(pdEl,{attributes:true,attributeFilter:["open"]});
+    }
     // the screens load after the hero intro, once the section is near (all of them: a card off to the side is clipped,
     // and lazy loading alone would only fetch its screens as it slides in); the cards rise in the first time it's in view
     if("IntersectionObserver" in window){
@@ -655,6 +696,7 @@
   // Smooth wheel: the page follows the wheel on a critically damped spring of this angular frequency (rad/s):
   // it speeds up, then settles softly into place, ~95 % there after 4.74/SMOOTH_W s (about 0.6 s)
   const SMOOTH_W=8;
+  const EDGE_REST=220;                    // ms the wheel rests after braking into a page edge, before it moves on
   const SMOOTH_ACC=9000;                  // px/s²: speeding up is capped at this (a far target pulls smoothly, not
                                           // with a kick); slowing down isn't, so it never overshoots
   const headEl=document.querySelector(".top"), footEl=document.querySelector("body > footer");
@@ -773,18 +815,32 @@
       const done=Math.abs(m.target-m.y)<1 && Math.abs(m.v)<40;
       if(done) m.y=m.target;
       scrollTo({top:m.y,behavior:"instant"}); m.at=scrollY;
-      if(done){ smoothNow=null; settle(); return; }
+      if(done){ if(m.edge!=null) edgeRest=now+EDGE_REST; smoothNow=null; settle(); return; }
       m.raf=requestAnimationFrame(smoothStep);
     }
+    // Every page edge is a stop on the way: a spin that would pass one brakes into it instead, the rest of that push
+    // waits, and after a short rest the wheel moves on from there, speeding up again. Both ways.
+    let edgeRest=0;
+    function edgeAhead(from,to){
+      const d=Math.sign(to-from); let best=null;
+      if(d) for(const p of stops()) for(const y of [p.s,p.e]){
+        if(d>0?(y>from+.5 && y<=to):(y<from-.5 && y>=to)) if(best===null || Math.abs(y-from)<Math.abs(best-from)) best=y;
+      }
+      return best;
+    }
     function smoothBy(dy){
-      if(!smoothNow){ smoothNow={y:scrollY,v:0,target:scrollY,at:scrollY,t:0,raf:0,snap:0}; smoothNow.raf=requestAnimationFrame(smoothStep); }
+      if(!smoothNow){ smoothNow={y:scrollY,v:0,target:scrollY,at:scrollY,t:0,raf:0,snap:0,edge:null}; smoothNow.raf=requestAnimationFrame(smoothStep); }
       const m=smoothNow;
-      m.target=Math.max(0,Math.min(maxScroll(),m.target+dy));
+      if(m.edge!=null){ if(Math.sign(dy)===Math.sign(m.edge-m.y)) return; m.edge=null; } // braking: only a turn back counts
+      let to=Math.max(0,Math.min(maxScroll(),m.target+dy));
+      const edge=edgeAhead(m.target,to);
+      if(edge!==null){ to=edge; m.edge=edge; }
+      m.target=to;
       // once the wheel goes quiet, the spring heads straight for where the magnet would take it: one motion that
       // eases out on the page edge, instead of stopping short and starting again
       clearTimeout(m.snap);
       m.snap=setTimeout(()=>{
-        if(smoothNow!==m || busy() || touching || dragging) return;
+        if(smoothNow!==m || m.edge!=null || busy() || touching || dragging) return;
         const to=snapFor(m.target);
         if(to!==null) m.target=to;
       },WHEEL_GAP);
@@ -813,7 +869,7 @@
       const y=scrollY, ps=pageStart(projEl), now=performance.now();
       const free=!busy() && !glideNow && !smoothNow && !touching && !dragging;
       if(free && (lastInput==="touch" || lastInput==="key") && now>carFree && now>quietUntil
-        && Math.abs(y-carY)<innerHeight && (crosses(carY,y,ps) || (now<carHold && Math.abs(y-ps)>1))){
+        && Math.abs(y-carY)<3*innerHeight && (crosses(carY,y,ps) || (now<carHold && Math.abs(y-ps)>1))){
         // a touch fling goes on after a programmatic scroll: taking the overflow away for a moment ends it, and
         // for CAR_STOP whatever is left of it is pulled back
         if(lastInput==="touch"){
@@ -855,7 +911,7 @@
           if(crosses(scrollY,from+dy,ps)){ e.preventDefault(); stopSmooth(); gateTo(ps); return; }
         }
       }
-      if(smoothable(e)){ e.preventDefault(); smoothBy(dy); }
+      if(smoothable(e)){ e.preventDefault(); if(now>=edgeRest) smoothBy(dy); }
     },{passive:false});
     const KEYS={ArrowDown:1,PageDown:1," ":1,ArrowUp:-1,PageUp:-1};
     const CAR_KEYS={...KEYS,ArrowRight:1,ArrowLeft:-1};
@@ -1046,6 +1102,40 @@
     pd.addEventListener("close",()=>pd.classList.remove("fx-morphed"));
   }
 
+  /* ---------- project dialog: a frosted header over the content, and the wheel scrolls it as smoothly as the page ---------- */
+  if(pd){
+    const head=pd.querySelector(".pd-head"), box=pd.querySelector(".pd-scroll");
+    if(head && box){
+      root.classList.add("fx-pdh");
+      const setH=()=>{ if(head.offsetHeight) pd.style.setProperty("--pd-head",head.offsetHeight+"px"); };
+      if("ResizeObserver" in window) new ResizeObserver(setH).observe(head);
+      setH();
+    }
+    if(box && !REDUCED){
+      let m=null;                          // the same spring as the page's smooth wheel: {y, v, target, at, t, raf}
+      const step=now=>{
+        if(!m) return;
+        if(Math.abs(box.scrollTop-m.at)>3 || !pd.open){ m=null; return; }   // keys, a thumbnail, the scrollbar: they win
+        const dt=Math.min(.032,m.t?(now-m.t)/1000:1/60); m.t=now;
+        let a=SMOOTH_W*SMOOTH_W*(m.target-m.y)-2*SMOOTH_W*m.v;
+        if(Math.sign(a)===Math.sign(m.v) || Math.abs(m.v)<1) a=Math.max(-SMOOTH_ACC,Math.min(SMOOTH_ACC,a));
+        m.v+=a*dt; m.y+=m.v*dt;
+        const done=Math.abs(m.target-m.y)<1 && Math.abs(m.v)<40;
+        if(done) m.y=m.target;
+        box.scrollTop=m.y; m.at=box.scrollTop;
+        if(done) m=null; else m.raf=requestAnimationFrame(step);
+      };
+      box.addEventListener("wheel",e=>{
+        if(e.ctrlKey || e.defaultPrevented || Math.abs(e.deltaX)>Math.abs(e.deltaY)) return;
+        const max=box.scrollHeight-box.clientHeight; if(max<=0) return;
+        e.preventDefault();
+        const dy=e.deltaY*(e.deltaMode===1?40:e.deltaMode===2?box.clientHeight:1);
+        if(!m){ m={y:box.scrollTop,v:0,target:box.scrollTop,at:box.scrollTop,t:0,raf:0}; m.raf=requestAnimationFrame(step); }
+        m.target=Math.max(0,Math.min(max,m.target+dy));
+      },{passive:false});
+    }
+  }
+
   /* ---------- 3D card: card3d.js + Three.js, loaded once the page is idle, only where it runs well ---------- */
   // ?3d=1 / ?3d=0 force it on or off for testing; without WebGL2 it never loads
   const want3d=(()=>{
@@ -1064,12 +1154,13 @@
   if(!fine) return;
 
   const HALO_LERP=.18;                    // halo follow per frame
-  const MAG_SEL=".btn-primary,.btn-ghost,.icon-btn,.tg";
+  const MAG_SEL=".btn-primary,.btn-ghost,.icon-btn,.tg,.fx-car-go";
   const MAG_R=80, MAG_MAX=7, MAG_ICON=1.7; // reach from the edge (px), max shift (px), icon shift multiplier
-  const SPRING_K=.16, SPRING_D=.74;       // magnet spring stiffness and damping
+  const SPRING_K=.14, SPRING_D=.6;        // magnet spring stiffness and damping (close to critical: no wobble)
   const SPOT_SEL=".pcard,.tbox,.tg,.prow";
   const GOLD_LERP=.08, GOLD_REST=40;      // --sx easing and resting value
-  const LINK_SEL="a,button,[role=button],label,input,select,textarea,summary";
+  const LINK_SEL="a,button,[role=button],label,input,select,textarea,summary,.fx-car-in";
+  const CAR_TILT=5, CAR_PERSP=1600, CAR_LERP=.1; // carousel card under the pointer: max lean (deg), perspective (px), follow
   const PV_TILT=7, PV_PERSP=900, PV_LERP=.12; // project cover tilt: max angle (deg), perspective (px), follow per frame
   const PV_DELAY=350, PV_SLIDE=1900, PV_FADE=600; // hover preview: start delay, time per shot, crossfade (ms)
   const PV_ZOOM=1.07;                     // Ken Burns zoom for regular shots; tall ones scroll down instead
@@ -1112,6 +1203,12 @@
   addEventListener("resize",()=>{ markDirty(); vw=innerWidth; vh=innerHeight; },{passive:true});
   if("ResizeObserver" in window) new ResizeObserver(markDirty).observe(document.body);
   new MutationObserver(markDirty).observe(document.body,{childList:true,subtree:true});
+  document.addEventListener("vz:car",e=>{
+    if(seen) measure(); else markDirty();
+    // the cards move: the leaning one settles; once they're in place, the one under a still pointer leans
+    const el=e.detail && e.detail.done && px>-999 && document.elementFromPoint(px,py);
+    hoverCar(el && el.closest(".fx-car-card.on .fx-car-in") || null);
+  });
   const strip=document.getElementById("strip");
   if(strip) strip.addEventListener("scroll",()=>{ if(seen){ measure(); moved=true; wake(); } else markDirty(); },{passive:true});
   addEventListener("scroll",()=>{
@@ -1138,6 +1235,8 @@
     if(e.pointerType!=="mouse") return;
     const t=e.target, pc=t.closest("a.pcard");
     if(pc!==hov) hoverCard(pc);
+    const ci=t.closest(".fx-car-card.on .fx-car-in");
+    if(ci!==carHov) hoverCar(ci);
     setMode(t.closest("#bcard")?"gold":t.closest(LINK_SEL)?"link":"");
     const s=t.closest(SPOT_SEL);
     if(s!==lit){ if(lit) lit.classList.remove("fx-lit"); lit=s; if(s){ s.classList.add("fx-lit"); moved=true; wake(); } }
@@ -1146,7 +1245,7 @@
     if(e.relatedTarget) return;
     halo.classList.remove("on"); setMode("");
     if(lit){ lit.classList.remove("fx-lit"); lit=null; }
-    hoverCard(null);
+    hoverCard(null); hoverCar(null);
     px=py=-999; moved=true; wake();
   },{passive:true});
   addEventListener("blur",()=>halo.classList.remove("on"));
@@ -1241,6 +1340,19 @@
     }),PV_FADE);
   }
 
+  /* The active carousel card leans toward the pointer and a light follows it (fx.css: .fx-hov). Its box is taken from
+     the card around it, which doesn't lean, once on the way in (the stage holds still while the pointer is on it). */
+  let carHov=null; const carLean=new Map(); // .fx-car-in → {x, y, box}
+  function hoverCar(el){
+    if(carHov){ carHov.classList.remove("fx-hov"); const s=carLean.get(carHov); if(s) s.box=null; }
+    carHov=el||null;
+    if(!el) { wake(); return; }
+    const r=el.parentNode.getBoundingClientRect();
+    if(!carLean.has(el)) carLean.set(el,{x:0,y:0});
+    carLean.get(el).box={l:r.left+sX,t:r.top+sY,w:r.width,h:r.height};
+    el.classList.add("fx-hov"); moved=true; wake();
+  }
+
   const docX=b=>px+(b.f?0:sX), docY=b=>py+(b.f?0:sY);
   const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 
@@ -1297,6 +1409,23 @@
       } else busy=true;
       cover.style.transform=`perspective(${PV_PERSP}px) rotateX(${(-s.y*PV_TILT).toFixed(2)}deg) rotateY(${(s.x*PV_TILT).toFixed(2)}deg)`;
       s.glare.style.transform=`translate(${(s.x*25).toFixed(2)}%,${(s.y*25).toFixed(2)}%)`;
+    }
+
+    // the carousel card leans toward the pointer; its light follows the pointer exactly
+    for(const [el,s] of carLean){
+      let tx=0, ty=0;
+      const b=el===carHov && px>-999 && s.box;
+      if(b){
+        const x=(px+sX-b.l)/b.w, y=(py+sY-b.t)/b.h;
+        tx=clamp(x*2-1,-1,1); ty=clamp(y*2-1,-1,1);
+        if(moved){ el.style.setProperty("--mx",(x*b.w).toFixed(0)+"px"); el.style.setProperty("--my",(y*b.h).toFixed(0)+"px"); }
+      }
+      s.x+=(tx-s.x)*CAR_LERP; s.y+=(ty-s.y)*CAR_LERP;
+      if(Math.abs(tx-s.x)+Math.abs(ty-s.y)<.002){
+        s.x=tx; s.y=ty;
+        if(!b){ el.style.transform=""; carLean.delete(el); continue; }
+      } else busy=true;
+      el.style.transform=`perspective(${CAR_PERSP}px) rotateX(${(-s.y*CAR_TILT*.7).toFixed(2)}deg) rotateY(${(s.x*CAR_TILT).toFixed(2)}deg)`;
     }
 
     // gold: anywhere over the hero; same mapping as script.js inside the card so there's no jump
