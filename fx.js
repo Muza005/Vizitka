@@ -724,6 +724,11 @@
   const SMOOTH_W=8;
   const EDGE_REST=320;                    // ms the wheel rests after braking into a page edge, before it moves on
   const EDGE_NEAR=.2;                     // a page taller than the screen by less than this share is one stop, not two
+  const SWIPE_STEP=24;                    // touch: px a vertical swipe travels before it pages
+  const SWIPE_SCREEN=.88;                 // touch: inside a long page, a swipe goes on by about this share of a screen
+  const SWIPE_HOP=.2;                     // touch: a stop nearer than this share of a screen is passed over
+  const SWIPE_GAP=14;                     // touch: px of room left above a block a swipe lands on
+  const SWIPE_MIN=520, SWIPE_MAX=900, SWIPE_K=.4; // touch: glide ms, SWIPE_MIN + SWIPE_K·distance, capped
   const SMOOTH_ACC=9000;                  // px/s²: speeding up is capped at this (a far target pulls smoothly, not
                                           // with a kick); slowing down isn't, so it never overshoots
   const headEl=document.querySelector(".top"), footEl=document.querySelector("body > footer");
@@ -966,10 +971,37 @@
       const to=gateTarget(d>0);
       if(to!==null){ e.preventDefault(); gate(to); }
     });
-    let touchY=0, carTouch=null;
+    // Touch pages the site: the finger never drags the page or holds it halfway. A swipe either way (from SWIPE_STEP px
+    // on) sets off a glide to the next stop that way, and the glide always plays out (touches meanwhile are ignored).
+    // Stops are the page edges (a page only a little taller than the screen is one stop, as for the wheel). Inside a
+    // page much taller than the screen (the prices on a phone) a swipe goes on by up to SWIPE_SCREEN of a screen, to the
+    // top of a block (a price, a box, a step), not through one. On the carousel a swipe moves one project instead
+    // (above); the projects are a stop like any other (from above they show the first project, from below the last).
+    // Pinch zoom is left alone.
+    const BLOCK_SEL=".sec-head,.price-group > h3,.prow,.tbox,.pay,.steps-title,.steps > li,.contact > div,.clist > li";
+    function swipePage(d){
+      const y=scrollY, vh=innerHeight-headH(), hop=SWIPE_HOP*vh, room=SWIPE_SCREEN*vh, pages=stops();
+      const edges=[...new Set(pages.flatMap(p=>edgesOf(p,d)).map(Math.round))].sort((a,b)=>a-b);
+      let to=d>0?edges.find(v=>v>y+hop):[...edges].reverse().find(v=>v<y-hop);
+      // in a long page with its end more than a screen away: a screen's step, onto a block's top
+      const i=pages.findIndex(p=>p.e-p.s>=EDGE_NEAR*innerHeight && (d>0?y>=p.s-2 && y<p.e-2:y>p.s+2 && y<=p.e+2));
+      if(i>=0 && (to===undefined || Math.abs(to-y)>room)){
+        const p=pages[i], ideal=y+d*room;
+        const tops=[...pageEls[i].querySelectorAll(BLOCK_SEL)].map(el=>docTop(el)-headH()-SWIPE_GAP).filter(v=>v>p.s && v<p.e);
+        const fit=d>0?tops.filter(v=>v>y+hop && v<=ideal):tops.filter(v=>v<y-hop && v>=ideal);
+        to=fit.length?(d>0?Math.max(...fit):Math.min(...fit)):Math.max(p.s,Math.min(p.e,ideal));
+        const edge=d>0?p.e:p.s;                       // no sliver left before the page's own edge
+        if(Math.abs(edge-to)<hop) to=edge;
+      }
+      if(to===undefined){ const last=d>0?edges[edges.length-1]:edges[0]; if(Math.abs(last-y)>2) to=last; else return; }
+      gateTo(to,Math.min(SWIPE_MAX,SWIPE_MIN+SWIPE_K*Math.abs(to-y)));
+    }
+    let carTouch=null, swipe=null;
     addEventListener("touchstart",e=>{
-      touching=true; lastInput="touch"; touchY=e.touches[0].clientY; stopSmooth(); if(!(glideNow && glideNow.gate)) stopGlide();
-      carTouch=pinned() && e.touches.length===1?{x:e.touches[0].clientX,y:touchY,done:false}:null;
+      touching=true; lastInput="touch"; stopSmooth(); if(!(glideNow && glideNow.gate)) stopGlide();
+      const one=e.touches.length===1, t=e.touches[0];
+      carTouch=one && pinned()?{x:t.clientX,y:t.clientY,done:false}:null;
+      swipe=one && !carTouch && !busy()?{x:t.clientX,y:t.clientY,done:false}:null;
     },{passive:true});
     addEventListener("touchmove",e=>{
       if(glideNow && glideNow.gate){ if(e.cancelable) e.preventDefault(); return; }
@@ -982,10 +1014,12 @@
         if(Math.abs(d)>=CAR_TOUCH){ carTouch.done=true; carGesture(Math.sign(d)); }
         return;
       }
-      const dy=touchY-e.touches[0].clientY;
-      if(Math.abs(dy)<8 || !e.cancelable) return;
-      const to=gateTarget(dy>0);
-      if(to!==null){ e.preventDefault(); gate(to); }
+      if(!swipe) return;
+      if(e.touches.length!==1 || busy()){ swipe=null; return; }
+      if(e.cancelable) e.preventDefault();
+      if(swipe.done) return;
+      const dx=swipe.x-e.touches[0].clientX, dy=swipe.y-e.touches[0].clientY;
+      if(Math.abs(dy)>=SWIPE_STEP && Math.abs(dy)>=Math.abs(dx)){ swipe.done=true; swipePage(Math.sign(dy)); }
     },{passive:false});
     const untouch=()=>{ touching=false; };
     addEventListener("touchend",untouch,{passive:true}); addEventListener("touchcancel",untouch,{passive:true});

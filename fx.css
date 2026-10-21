@@ -504,3 +504,9 @@ html:not(.fx) .pcard:hover::after{content:"";position:absolute;left:0;right:0;to
   background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.07) 40%,rgba(255,255,255,.34) 49%,rgba(255,236,190,.22) 53%,rgba(255,255,255,.05) 62%,transparent 72%);
   transform:translateX(-110%);animation:fxSheen 1.5s cubic-bezier(.45,0,.2,1) .55s forwards}
 @keyframes fxSheen{to{transform:translateX(110%)}}
+
+
+/* Above the header. Some browsers lay a see-through bar over the top of the page (Telegram's in-app browser on
+   iPhone, Safari's compact bar): the sticky header stops below it, and the scrolled page showed in between. The
+   header's background reaches up under that bar (above the page's own top it only shows in an overscroll bounce). */
+.top::before{content:"";position:absolute;left:0;right:0;bottom:100%;height:240px;background:var(--bg);pointer-events:none}
