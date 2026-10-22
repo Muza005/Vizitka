@@ -240,11 +240,6 @@ html.fx-vt::view-transition-new(root){animation:fxVtFade .4s var(--ease) both}
   :is(.hero,#projects,#terms){min-height:calc(100svh - var(--fx-head));display:flex;flex-direction:column;justify-content:center}
   #contact{min-height:calc(100svh - var(--fx-head) - var(--fx-foot,91px));display:flex;flex-direction:column;justify-content:center}
 }
-/* Touch pages (html.fx-tp, fx.js; phones and tablets): a page taller than the screen is a box a screen high that
-   scrolls inside, natively (the phone's own finger, momentum and bounce), and doesn't hand the scroll on to the
-   page at its ends; fx.js moves the page from one to the next */
-html.fx-tp .fx-tp-box{display:block;height:var(--fx-tp-h,calc(100svh - var(--fx-head)));min-height:0;
-  overflow-y:auto;overscroll-behavior-y:contain}
 /* a section focused after a keyboard-activated link: the focus moves there for screen readers and Tab, no ring */
 section[tabindex="-1"]:focus{outline:none}
 
@@ -509,9 +504,3 @@ html:not(.fx) .pcard:hover::after{content:"";position:absolute;left:0;right:0;to
   background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.07) 40%,rgba(255,255,255,.34) 49%,rgba(255,236,190,.22) 53%,rgba(255,255,255,.05) 62%,transparent 72%);
   transform:translateX(-110%);animation:fxSheen 1.5s cubic-bezier(.45,0,.2,1) .55s forwards}
 @keyframes fxSheen{to{transform:translateX(110%)}}
-
-
-/* Above the header. Some browsers lay a see-through bar over the top of the page (Telegram's in-app browser on
-   iPhone, Safari's compact bar): the sticky header stops below it, and the scrolled page showed in between. The
-   header's background reaches up under that bar (above the page's own top it only shows in an overscroll bounce). */
-.top::before{content:"";position:absolute;left:0;right:0;bottom:100%;height:240px;background:var(--bg);pointer-events:none}
