@@ -242,10 +242,23 @@
       root.classList.add("fx-intro-on","fx-sheen");
 
       let t0=0, raf=0, over=false, endAt=0;
+      // every character's box, read in one go and kept until the text boxes or the fonts change: reading the newest
+      // character each frame, right after a class change, forced a style recalc and a layout every frame
+      let boxes=null;
+      const forget=()=>{ boxes=null; };
+      const boxOf=s=>{
+        if(!boxes){ boxes=new Map(); for(const c of [...title.chars,...body.chars]) boxes.set(c,{l:c.offsetLeft,t:c.offsetTop,w:c.offsetWidth,h:c.offsetHeight}); }
+        return boxes.get(s);
+      };
+      const ro="ResizeObserver" in window?new ResizeObserver(forget):null;
+      if(ro){ ro.observe(h1); ro.observe(lead); }
+      if(document.fonts && document.fonts.addEventListener) document.fonts.addEventListener("loadingdone",forget);
+      addEventListener("resize",forget,{passive:true});
       const place=(t,s)=>{
         if(caret.parentNode!==t.el) t.el.append(caret);
-        const x=s?s.offsetLeft+s.offsetWidth:(t.chars[0]?t.chars[0].offsetLeft:0), ref=s||t.chars[0];
-        if(ref){ caret.style.height=ref.offsetHeight*.8+"px"; caret.style.transform=`translate(${x.toFixed(1)}px,${(ref.offsetTop+ref.offsetHeight*.1).toFixed(1)}px)`; }
+        const ref=s||t.chars[0]; if(!ref) return;
+        const b=boxOf(ref), x=s?b.l+b.w:b.l;
+        caret.style.height=b.h*.8+"px"; caret.style.transform=`translate(${x.toFixed(1)}px,${(b.t+b.h*.1).toFixed(1)}px)`;
       };
       const type=(t,now)=>{ while(t.n<t.chars.length && t.times[t.n]<=now) t.chars[t.n++].classList.add("on"); };
       const tick=now=>{
@@ -263,6 +276,9 @@
       function finish(){
         if(over) return; over=true;
         cancelAnimationFrame(raf);
+        if(ro) ro.disconnect();
+        if(document.fonts && document.fonts.removeEventListener) document.fonts.removeEventListener("loadingdone",forget);
+        removeEventListener("resize",forget);
         removeEventListener("scroll",onScroll);
         for(const ev of ["pointerdown","keydown","wheel","touchstart"]) removeEventListener(ev,finish,true);
         caret.remove();

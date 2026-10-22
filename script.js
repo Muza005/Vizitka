@@ -221,7 +221,7 @@ function renderStrip(){
     const minis = shots.filter(s=>s[0]!==p.cover).slice(0,3).map(s=>`<span><img src="${IMG[s[0]]}" alt="" loading="lazy"></span>`).join("");
     const rest = shots.length-1-3;
     return `<a class="pcard" href="#${p.id}" data-p="${i}">
-      <div class="pcover"><img src="${IMG[p.cover]}" alt="${esc(p.name[lang])}"></div>
+      <div class="pcover"><img src="${IMG[p.cover]}" alt="${esc(p.name[lang])}" loading="lazy"></div>
       <div class="pminis">${minis}<span>${rest>0?"+"+rest:""}</span></div>
       <div class="pinfo">
         <span class="ptype">${esc(p.type[lang])}</span>
@@ -503,7 +503,7 @@ if(fine){
     ["--ry","--rx"].forEach(k=>tilt.style.setProperty(k,"0deg"));
   });
 }
-let guillocheW=0;
+let guillocheW=0, guillocheN=0, guillocheUrl="";
 function drawGuilloche(){
   const front=$(".front"), r={width:front.offsetWidth,height:front.offsetHeight}; if(!r.width) return;
   const dpr=Math.min(2,window.devicePixelRatio||1);
@@ -514,7 +514,15 @@ function drawGuilloche(){
   const ctx=cv.getContext("2d"), W=cv.width, H=cv.height;
   ctx.clearRect(0,0,W,H);
   paintGuilloche(ctx,W,H,Math.max(.6,.55*dpr));
-  front.style.setProperty("--gl", `url("${cv.toDataURL("image/png")}")`);
+  // a blob: URL, not a data: URL: a 200 KB string in --gl was re-parsed on every style recalc of the card
+  const n=++guillocheN, set=u=>front.style.setProperty("--gl",`url("${u}")`);
+  if(!cv.toBlob || !window.URL || !URL.createObjectURL) return set(cv.toDataURL("image/png"));
+  cv.toBlob(b=>{
+    if(n!==guillocheN) return;
+    if(!b) return set(cv.toDataURL("image/png"));
+    const old=guillocheUrl; guillocheUrl=URL.createObjectURL(b); set(guillocheUrl);
+    if(old) setTimeout(()=>URL.revokeObjectURL(old),3000);
+  },"image/png");
 }
 // Also used by card3d.js for the WebGL card's textures: only = "band" | "rosette" | undefined (both), ink overrides the colors
 function paintGuilloche(ctx,W,H,lw,only,ink){
